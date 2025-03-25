@@ -65,13 +65,13 @@ reference_object_list = [
         "reliability": 0.85
     },
     {
-        "type": "airplane_737",
+        "type": "airbus_737",
         "dimensions": {"length": 33.6, "width": 35.8},  # width includes wingspan
         "area": 1202.88,
         "reliability": 0.98
     },
     {
-        "type": "airplane_747",
+        "type": "airbus_747",
         "dimensions": {"length": 70.6, "width": 59.6},  # width includes wingspan
         "area": 4207.76,
         "reliability": 0.98

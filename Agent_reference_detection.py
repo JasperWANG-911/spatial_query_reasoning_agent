@@ -1,257 +1,511 @@
+"""
+Agent for Reference Detection (Simplified Version).
+This module implements a streamlined agent that detects and selects reference objects.
+"""
+
 import os
 import json
+from typing import List, Dict, Any, Optional, Tuple, Union
+import numpy as np
 from openai import OpenAI
 
-# Import API functions - these are defined in a API_reference_obj.py
-# Agent can dynamically call these functions
-from API_reference_obj import (
-    call_geochat_for_image_caption,
-    generate_reference_list
-    select_optimal_references,
-    call_geochat_for_segmentation,
-    calculate_pixel_metrics,
-    call_unidepth,
-    infer_scale_factor,
-    calculate_real_world_metrics,
-)
+# Import the API modules
+from API_Grounded_RS_VLM import GeoChat, analyse_caption_for_references, reference_object_list
+from API_Vision_Specialist import SAM2
+import API_Reference_Object_Selection as ref_selection
 
-
-class SpatialMetricQueryAgent:
+class ReferenceDetectionAgent:
     """
-    Dynamic agent for spatial metric query answering in remote sensing images.
-    Dynamically calls external API functions to perform analysis.
+    Simplified agent for detecting and selecting reference objects in remote sensing imagery.
+    
+    Workflow:
+    1. Image -> GeoChat captioning -> List of potential objects
+    2. GPT-4 analysis of caption -> Matched reference objects
+    3. GeoChat bounding box generation -> Objects with coordinates
+    4. SAM2 segmentation -> Precise masks and measurements
+    5. Dynamic selection of reference objects based on query
     """
     
-    def __init__(self, openai_api_key=None):
-        """Initialize Spatial Metric Query Agent"""
+    def __init__(self, openai_api_key: Optional[str] = None):
+        """
+        Initialize the Reference Detection Agent.
+        
+        Args:
+            openai_api_key: OpenAI API key for GPT-4 calls (optional, will use env var if not provided)
+        """
+        # Initialize OpenAI client
         self.openai_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
-        if not self.openai_api_key:
-            raise ValueError("OpenAI API key is required")
-            
         self.openai_client = OpenAI(api_key=self.openai_api_key)
+        
+        # Initialize API components
+        self.geochat = GeoChat()
+        self.sam = SAM2()
+        
+        # Store reference object list
+        self.reference_object_list = reference_object_list
     
-    def transform_query(self, query: str, image_path: str) -> str:
+    def execute_fixed_workflow(self, image_path: str) -> List[Dict[str, Any]]:
         """
-        Transform the original query into a form that's suitable for spatial metric analysis
+        Execute the fixed part of the workflow to detect reference objects.
+        
+        Args:
+            image_path: Path to the input image
+            
+        Returns:
+            List of detected reference objects with comprehensive information
         """
+        # Step 1: Get image description from GeoChat
+        image_description = self.geochat.generate_captionning(image_path)
+        print(f"Image description: {image_description}")
         
-        system_prompt = """You are a query transformation assistant for remote sensing image analysis.
-
-Your task is to transform general questions about spatial metrics into specific queries about measuring objects in remote sensing images.
-
-For example:
-- "How big is that building?" → "What is the building's real-world footprint area in square meters?"
-- "What's the length of the road?" → "What is the real-world length of the visible road segment in meters?"
-- "How far apart are these houses?" → "What is the real-world distance between the two houses in meters?"
-
-Important rules:
-1. Always transform queries to focus on specific spatial measurements
-2. Include the appropriate unit of measurement (meters, square meters, etc.)
-3. Clarify whether the measurement is for length, area, perimeter, or distance
-4. Make it clear the analysis is based on the remote sensing image
-5. Keep the transformed query concise and clear
-
-Return only the transformed query without any explanation or additional text."""
-
-        user_prompt = f"""Original query: {query}
-
-Transform this query to focus specifically on spatial metric measurements in a remote sensing image."""
-
-        try:
-            completion = self.openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ]
-            )
-            
-            transformed_query = completion.choices[0].message.content.strip()
-            return transformed_query
-        except Exception as e:
-            print(f"Error transforming query: {e}")
-            # Return original query if transformation fails
-            return query
-    
-    def design_analysis_plan(self, query: str, image_path: str) -> Dict:
-        """Design spatial analysis plan based on query"""
-        system_prompt = """You are a spatial analysis assistant that helps design plans for measuring objects in remote sensing images.
-You can use the following functions:
-
-1. "call_geochat_for_image_caption": Generate a comprehensive caption/description of the remote sensing image
-2. "extract_reference_objects_from_caption": Extract potential reference objects from the image caption
-3. "select_optimal_references": Select the most reliable reference objects for scale estimation
-4. "segment_objects_with_sam2": Segment objects in the image using SAM2
-5. "calculate_pixel_metrics": Calculate pixel-level metrics (area, length, etc.)
-6. "infer_scale_factor": Infer the scale factor based on reference objects
-7. "calculate_real_world_metrics": Calculate real-world measurements
-
-Please return an execution plan in JSON format:
-{
-  "plan": [
-    {"function": "function_name", "description": "purpose of this step"},
-    {"function": "another_function", "description": "purpose of this step"}
-  ],
-  "explanation": "explanation of the execution plan",
-  "target_metric": "area/length/distance/perimeter"
-}
-
-Note:
-- Reference objects are essential for calculating the scale factor
-- The plan should include the identification of both the reference objects and the object of interest
-- Different metrics (area, length, etc.) may require different reference objects and calculation methods
-- Only select necessary functions required to complete the task"""
-
-        user_prompt = f"Query: {query}\nImage path: {image_path}\nPlease design a spatial analysis plan."
-
-        try:
-            completion = self.openai_client.chat.completions.create(
-                model="gpt-4o",
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ]
-            )
-            
-            plan = json.loads(completion.choices[0].message.content)
-            print(f"Analysis plan: {json.dumps(plan, indent=2, ensure_ascii=False)}")
-            return plan
-        except Exception as e:
-            print(f"Error designing analysis plan: {e}")
-            return {"plan": [], "explanation": f"Error designing analysis plan: {e}"}
-    
-    def execute_plan(self, plan: Dict, image_path: str) -> Dict:
-        """Execute spatial analysis plan by dynamically calling the appropriate API functions"""
+        # Step 2: Analyze the description to find potential reference objects
+        matched_objects = analyse_caption_for_references(image_description)
+        print(f"Matched reference objects: {matched_objects}")
         
-        # Dictionary to store intermediate results
-        data = {
-            "image_path": image_path,
-            "target_metric": plan.get("target_metric", "unknown")
-        }
+        # Step 3: Get bounding boxes for the reference objects
+        objects_with_bbox = self.geochat.generate_bbox(image_path, matched_objects)
+        print(f"Objects with bounding boxes: {len(objects_with_bbox)}")
         
-        # Track completed steps
-        for step_idx, step in enumerate(plan.get("plan", [])):
-            function_name = step.get("function")
-            description = step.get("description", "No description")
+        # Step 4: Process with SAM2 to get masks and measurements
+        reference_objects = []
+        
+        for obj in objects_with_bbox:
+            obj_name = obj['obj_name']
+            bbox = obj['bbox']
             
             try:
-                # Call the appropriate function based on the plan
-                # This demonstrates the dynamic nature of the agent
+                # Load image for SAM
+                image = self.sam.load_image(image_path)
+                self.sam.set_image(image)
                 
-                if function_name == "call_geochat_for_image_caption":
-                    caption = call_geochat_for_image_caption(
-                        self.openai_api_key, 
-                        image_path
-                    )
-                    data["image_caption"] = caption
+                # Get mask
+                x1, y1, x2, y2 = bbox
+                mask = self.sam.predict_mask(x1, y1, x2, y2)
                 
-                elif function_name == "extract_reference_objects_from_caption":
-                    if "image_caption" not in data:
-                        print("No image caption available, skipping reference extraction")
-                        continue
-                        
-                    reference_objects = extract_reference_objects_from_caption(
-                        self.openai_api_key,
-                        data["image_caption"],
-                        image_path
-                    )
-                    data["reference_objects"] = reference_objects
+                # Get smallest bounding box and measurements
+                box, rect = self.sam.get_smallest_bounding_box(mask)
                 
-                elif function_name == "select_optimal_references":
-                    if "reference_objects" not in data:
-                        print("No reference objects detected, skipping selection")
-                        continue
-                        
-                    data["selected_references"] = select_optimal_references(
-                        self.openai_api_key,
-                        data["reference_objects"], 
-                        data["target_metric"]
-                    )
+                if not rect:
+                    continue
                 
+                # Calculate measurements
+                width_pixel = min(rect[1])
+                height_pixel = max(rect[1])
+                area_pixel = self.sam.compute_mask_pixel(mask)
                 
-                elif function_name == "calculate_pixel_metrics":
-                    if "segmentation_results" not in data:
-                        print("No segmentation results, skipping pixel metrics")
-                        continue
-                        
-                    data["pixel_metrics"] = calculate_pixel_metrics(
-                        data["segmentation_results"],
-                        data["target_metric"]
-                    )
+                # Find reference information from predefined list
+                base_obj_type = obj_name.split('_')[0]  # Extract base type (e.g., 'car' from 'car_1')
+                ref_info = next((ref for ref in self.reference_object_list if ref['type'] == base_obj_type), None)
                 
-                elif function_name == "infer_scale_factor":
-                    if "pixel_metrics" not in data or "selected_references" not in data:
-                        print("Missing required data, skipping scale factor inference")
-                        continue
-                        
-                    data["scale_factor"] = infer_scale_factor(
-                        data["selected_references"],
-                        data["pixel_metrics"]
-                    )
+                # Create comprehensive object info
+                obj_info = {
+                    'obj': obj_name,
+                    'mask': mask,
+                    'bbox': bbox,
+                    'width_pixel': width_pixel,
+                    'height_pixel': height_pixel,
+                    'area_pixel': area_pixel
+                }
                 
-                elif function_name == "calculate_real_world_metrics":
-                    if "scale_factor" not in data or "pixel_metrics" not in data:
-                        print("Missing required data, skipping real-world metrics")
-                        continue
-                        
-                    data["real_world_metrics"] = calculate_real_world_metrics(
-                        data["pixel_metrics"],
-                        data["scale_factor"],
-                        data["target_metric"]
-                    )
+                # Add reference dimensions if available
+                if ref_info:
+                    if 'dimensions' in ref_info:
+                        dimensions = ref_info['dimensions']
+                        if 'width' in dimensions:
+                            obj_info['width_m'] = dimensions['width']
+                        if 'length' in dimensions:
+                            obj_info['length_m'] = dimensions['length']
+                    if 'area' in ref_info:
+                        obj_info['area_m'] = ref_info['area']
+                    if 'reliability' in ref_info:
+                        obj_info['reliability'] = ref_info['reliability']
                 
-                else:
-                    print(f"Unknown function: {function_name}")
-            
+                # Add quality score
+                obj_info['quality'] = ref_selection.estimate_object_quality(obj_info)
+                
+                reference_objects.append(obj_info)
+                
             except Exception as e:
-                print(f"Error executing {function_name}: {e}")
-                data[f"{function_name}_error"] = str(e)
+                print(f"Error processing object {obj_name}: {e}")
+                continue
         
-        return data
+        return reference_objects
     
-    def process_query(self, query: str, image_path: str) -> str:
-        """Main function to process spatial metric query"""
+    def dynamically_select_references(
+        self, 
+        reference_objects: List[Dict[str, Any]], 
+        query: str,
+        target_object: Optional[str] = None,
+        target_point: Optional[Tuple[int, int]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Dynamically select appropriate reference objects based on the query and context.
         
-        if not os.path.exists(image_path):
-            return f"Error: Image file does not exist: {image_path}"
+        Args:
+            reference_objects: List of detected reference objects
+            query: The original user query
+            target_object: Optional name of the target object of interest
+            target_point: Optional point of interest coordinates as (x, y)
+            
+        Returns:
+            Selected list of reference objects
+        """
+        # First, get GPT-4's decision on how to select and filter references
+        selection_strategy = self._get_selection_strategy(reference_objects, query, target_object)
+        print(f"Selected strategy: {selection_strategy['strategy_name']}")
         
+        # Apply the selected strategy
+        strategy = selection_strategy['strategy']
+        filtered_objects = reference_objects.copy()
+        
+        for step in strategy:
+            step_type = step['type']
+            
+            if step_type == 'filter_by_area':
+                min_area = step.get('min_area', 0)
+                max_area = step.get('max_area', None)
+                filtered_objects = ref_selection.filter_by_area(filtered_objects, min_area, max_area)
+                print(f"After filtering by area: {len(filtered_objects)} objects")
+                
+            elif step_type == 'prioritize_by_size':
+                prefer_larger = step.get('prefer_larger', True)
+                filtered_objects = ref_selection.prioritize_by_size(filtered_objects, prefer_larger)
+                # Take top N if specified
+                top_n = step.get('top_n', len(filtered_objects))
+                filtered_objects = filtered_objects[:top_n]
+                print(f"After prioritizing by size: selected {len(filtered_objects)} objects")
+                
+            elif step_type == 'filter_by_known_dimensions':
+                filtered_objects = ref_selection.filter_by_known_dimensions(filtered_objects, self.reference_object_list)
+                print(f"After filtering by known dimensions: {len(filtered_objects)} objects")
+                
+            elif step_type == 'select_diverse_references':
+                min_objects = step.get('min_objects', 3)
+                filtered_objects = ref_selection.select_diverse_references(
+                    filtered_objects, min_objects
+                )
+                print(f"After selecting diverse objects: {len(filtered_objects)} objects")
+                
+            elif step_type == 'custom_operation':
+                # Execute a custom operation directly from the GPT-4 plan
+                operation = step.get('operation', {})
+                operation_type = operation.get('type', '')
+                print(f"Executing custom operation: {operation_type}")
+                
+                try:
+                    if operation_type == 'filter_by_ratio':
+                        # Filter objects based on aspect ratio
+                        min_ratio = operation.get('min_ratio', 0)
+                        max_ratio = operation.get('max_ratio', float('inf'))
+                        filtered_objects = [
+                            obj for obj in filtered_objects 
+                            if obj.get('width_pixel', 0) > 0 and obj.get('height_pixel', 0) > 0 and
+                            min_ratio <= (obj.get('width_pixel', 1) / obj.get('height_pixel', 1)) <= max_ratio
+                        ]
+                        print(f"After filtering by ratio: {len(filtered_objects)} objects")
+                    
+                    elif operation_type == 'custom_scoring':
+                        # Score objects based on custom criteria
+                        scoring_weights = operation.get('weights', {})
+                        size_weight = scoring_weights.get('size', 1.0)
+                        reliability_weight = scoring_weights.get('reliability', 1.0)
+                        quality_weight = scoring_weights.get('quality', 1.0)
+                        
+                        # Calculate scores
+                        scored_objects = []
+                        for obj in filtered_objects:
+                            score = 0
+                            # Size component
+                            if size_weight > 0:
+                                # Normalize area to 0-1 range (assuming max area is 100,000 pixels)
+                                area_score = min(1.0, obj.get('area_pixel', 0) / 100000)
+                                score += size_weight * area_score
+                            
+                            # Reliability component
+                            if reliability_weight > 0:
+                                score += reliability_weight * obj.get('reliability', 0.5)
+                            
+                            # Quality component
+                            if quality_weight > 0:
+                                score += quality_weight * obj.get('quality', 0.5)
+                            
+                            scored_objects.append((obj, score))
+                        
+                        # Sort by score and take top N
+                        top_n = operation.get('top_n', len(filtered_objects))
+                        filtered_objects = [obj for obj, _ in sorted(scored_objects, key=lambda x: x[1], reverse=True)[:top_n]]
+                        print(f"After custom scoring: selected top {len(filtered_objects)} objects")
+                    
+                    elif operation_type == 'combine_similar_objects':
+                        # Group by object type
+                        object_groups = {}
+                        for obj in filtered_objects:
+                            obj_type = obj.get('obj', '').split('_')[0]  # Base type (e.g., 'car' from 'car_1')
+                            if obj_type not in object_groups:
+                                object_groups[obj_type] = []
+                            object_groups[obj_type].append(obj)
+                        
+                        # For each group, select the best representative
+                        combined_objects = []
+                        for obj_type, objects in object_groups.items():
+                            if len(objects) == 1:
+                                combined_objects.append(objects[0])
+                            else:
+                                # Use quality score to find the best representative
+                                best_obj = max(objects, key=lambda x: x.get('quality', 0))
+                                combined_objects.append(best_obj)
+                        
+                        filtered_objects = combined_objects
+                        print(f"After combining similar objects: {len(filtered_objects)} objects")
+                    
+                    else:
+                        print(f"Unknown custom operation type: {operation_type}")
+                
+                except Exception as e:
+                    print(f"Error executing custom operation: {e}")
+        
+        return filtered_objects
+    
+    def _get_selection_strategy(
+        self, 
+        reference_objects: List[Dict[str, Any]], 
+        query: str,
+        target_object: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Use GPT-4 to dynamically decide how to select and filter reference objects.
+        
+        Args:
+            reference_objects: List of detected reference objects
+            query: The original user query
+            target_object: Optional name of the target object of interest
+            
+        Returns:
+            Strategy for selecting and filtering reference objects
+        """
+        # Extract basic information to avoid sending too much data to API
+        obj_summaries = []
+        for obj in reference_objects:
+            # Create a summary without mask data
+            summary = {
+                'obj': obj.get('obj', ''),
+                'width_pixel': obj.get('width_pixel', 0),
+                'height_pixel': obj.get('height_pixel', 0),
+                'area_pixel': obj.get('area_pixel', 0),
+                'width_m': obj.get('width_m', None),
+                'length_m': obj.get('length_m', None),
+                'area_m': obj.get('area_m', None),
+                'reliability': obj.get('reliability', None),
+                'quality': obj.get('quality', None)
+            }
+            obj_summaries.append(summary)
+        
+        # Create the prompt for GPT-4
+        api_descriptions = """
+        Available functions in API_Reference_Object_Selection:
+        
+        1. filter_by_area(reference_objects, min_area=0, max_area=None):
+           Filters objects based on their area in pixels.
+           
+        2. prioritize_by_size(reference_objects, prefer_larger=True): 
+           Sorts objects by size, preferring larger or smaller objects.
+           
+        3. filter_by_known_dimensions(reference_objects, reference_list):
+           Filters to only include objects with known real-world dimensions.
+           
+        4. select_diverse_references(reference_objects, min_objects=3):
+           Selects a diverse set of objects, preferring different types.
+           
+        5. estimate_object_quality(obj):
+           Estimates the quality of a reference object (already calculated for each object).
+        
+        CUSTOM OPERATIONS:
+        You can also define custom operations for situations where the predefined functions 
+        aren't sufficient.
+        
+        To use a custom operation, include a step with:
+        {
+            "type": "custom_operation",
+            "reason": "Why this operation is needed",
+            "operation": {
+                "type": "operation_type",
+                // Additional parameters specific to the operation
+            }
+        }
+        
+        Available custom operation types:
+        
+        1. filter_by_ratio - Filter objects based on their aspect ratio:
+           {
+               "type": "filter_by_ratio",
+               "min_ratio": 0.5,
+               "max_ratio": 2.0
+           }
+           
+        2. custom_scoring - Score and rank objects based on weighted criteria:
+           {
+               "type": "custom_scoring",
+               "weights": {
+                   "size": 1.0,
+                   "reliability": 1.5,
+                   "quality": 2.0
+               },
+               "top_n": 3
+           }
+           
+        3. combine_similar_objects - Combine similar objects into representatives:
+           {
+               "type": "combine_similar_objects"
+           }
+        """
+        
+        prompt = f"""
+        You are a dynamic agent for reference object selection in remote sensing imagery.
+        
+        Original query: {query}
+        
+        You've detected the following reference objects:
+        {json.dumps(obj_summaries, indent=2)}
+        
+        {api_descriptions}
+        
+        Based on the query and detected objects, create a strategy for selecting the most appropriate
+        reference objects. Return your strategy as a JSON object with the following structure:
+        
+        {{
+            "strategy_name": "Brief name of your strategy",
+            "reasoning": "Your reasoning about why you chose this strategy",
+            "strategy": [
+                {{
+                    "type": "function_name",  // One of the available functions or "custom_operation"
+                    "reason": "Why this step is needed",
+                    // Additional parameters specific to the function:
+                    "min_area": 1000,  // For filter_by_area
+                    "max_area": 50000,  // For filter_by_area
+                    "prefer_larger": true,  // For prioritize_by_size
+                    "top_n": 5,  // Number of top objects to keep after prioritizing
+                    "min_objects": 3,  // For select_diverse_references
+                    
+                    // For custom_operation:
+                    "operation": {{
+                        "type": "custom_scoring",
+                        "weights": {{"size": 1.0, "reliability": 1.5, "quality": 2.0}},
+                        "top_n": 3
+                    }}
+                }}
+            ]
+        }}
+        
+        Choose functions, custom operations, and parameters that best suit the specific query and available objects.
+        Create a strategy of 2-4 steps that will effectively filter and select the most appropriate reference objects.
+        """
+        
+        response = self.openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a specialized assistant for spatial analysis and reference object detection in remote sensing."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"}
+        )
+        
+        # Parse the response as JSON
         try:
-            # Store original query
-            original_query = query
-            
-            # 1. Transform the query
-            transformed_query = self.transform_query(query, image_path)
-            
-            # 2. Design analysis plan based on transformed query
-            plan = self.design_analysis_plan(transformed_query, image_path)
-            
-            # 3. Execute plan
-            results = self.execute_plan(plan, image_path)
-            
-            # 4. Generate response using the API function
-            response = generate_spatial_response(
-                self.openai_api_key,
-                transformed_query, 
-                results, 
-                original_query
-            )
-            
-            return response
+            result = json.loads(response.choices[0].message.content)
+            print(f"Selection strategy: {json.dumps(result, indent=2)}")
+            return result
         except Exception as e:
-            error_message = f"Error processing query: {str(e)}"
-            print(f"\n {error_message}")
-            import traceback
-            traceback.print_exc()
-            return error_message
+            print(f"Error parsing GPT-4 response: {e}")
+            # Return a default strategy if parsing fails
+            return {
+                "strategy_name": "Default quality-based strategy",
+                "reasoning": "Simple strategy focusing on quality and diversity",
+                "strategy": [
+                    {
+                        "type": "filter_by_known_dimensions",
+                        "reason": "Only use objects with known real-world dimensions"
+                    },
+                    {
+                        "type": "custom_operation",
+                        "reason": "Rank objects by quality score",
+                        "operation": {
+                            "type": "custom_scoring",
+                            "weights": {"quality": 1.0, "reliability": 1.0},
+                            "top_n": 5
+                        }
+                    },
+                    {
+                        "type": "select_diverse_references",
+                        "reason": "Ensure diversity in the selected references",
+                        "min_objects": 3
+                    }
+                ]
+            }
+    
+    def run(self, image_path: str, query: str, target_object: Optional[str] = None, target_point: Optional[Tuple[int, int]] = None) -> Dict[str, Dict[str, Union[float, int]]]:
+        """
+        Run the complete reference detection workflow.
+        
+        Args:
+            image_path: Path to the input image
+            query: The user query
+            target_object: Optional name of the target object of interest
+            target_point: Optional point of interest coordinates as (x, y)
+            
+        Returns:
+            Dictionary of selected reference objects with their measurements
+        """
+        # Step 1: Execute fixed workflow to detect reference objects
+        print("Starting fixed workflow to detect reference objects...")
+        reference_objects = self.execute_fixed_workflow(image_path)
+        print(f"Fixed workflow complete, detected {len(reference_objects)} reference objects")
+        
+        # Early return if no objects detected
+        if not reference_objects:
+            print("No reference objects detected. Aborting.")
+            return {}
+        
+        # Step 2: Dynamically select appropriate reference objects
+        print("Starting dynamic selection of reference objects...")
+        selected_objects = self.dynamically_select_references(
+            reference_objects, query, target_object, target_point
+        )
+        print(f"Dynamic selection complete, selected {len(selected_objects)} reference objects")
+        
+        # Step 3: Format the final output
+        final_output = {}
+        
+        for obj in selected_objects:
+            obj_name = obj['obj']
+            
+            # Create a dictionary with measurements
+            measurements = {
+                'width_pixel': obj.get('width_pixel', 0),
+                'height_pixel': obj.get('height_pixel', 0),
+                'area_pixel': obj.get('area_pixel', 0)
+            }
+            
+            # Add real-world dimensions if available
+            if 'width_m' in obj:
+                measurements['width_m'] = obj['width_m']
+            if 'length_m' in obj:
+                measurements['length_m'] = obj['length_m']
+            if 'area_m' in obj:
+                measurements['area_m'] = obj['area_m']
+            
+            final_output[obj_name] = measurements
+        
+        return final_output
 
 
+# Example usage
 if __name__ == "__main__":
-    # Initialize Agent
-    agent = SpatialMetricQueryAgent()
+    # Initialize agent
+    agent = ReferenceDetectionAgent()
     
-    # Example usage
-    image_path = "..."  # Path to a remote sensing image
+    # Run the complete workflow
+    image_path = "example_image.jpg"
+    query = "What is building's real-world footprint"
     
-    # Get user query
-    query = input("\nEnter your spatial query: ")
+    result = agent.run(image_path, query)
+    print(f"Final result: {json.dumps(result, indent=2)}")
