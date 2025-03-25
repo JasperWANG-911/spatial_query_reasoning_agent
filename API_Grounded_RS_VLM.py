@@ -119,13 +119,11 @@ def analyse_caption_for_references(caption: str) -> List[str]:
 # For Cheng: we need to complete this class by integrating geochat into this repo
 class GeoChat:
     """
-    GeoChat class with unctionality including image captioning and returning bbox.
+    GeoChat class with functionality including image captioning and returning bbox.
     """
     
     def __init__(self):
     
-    def generate_captionning(self, image_path: str) -> str:
+    def generate_captionning(self, image_path: str) -> str: # generate image caption
     
-    def generate_bbox(self, image_path: str) -> List[Dict[str, Any]]:
-
-    def 
+    def generate_bbox(self, image_path: str) -> List[Dict[str, Any]]: # use list generated from analyse_caption_for_references to generate a dictionary {'obj_name': 'bbox'}
