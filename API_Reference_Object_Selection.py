@@ -1,93 +1,82 @@
 """
-API for Reference Object Selection (Simplified Version).
-This module provides core functions for filtering and prioritizing reference objects.
-To fine-tune this model, we can add more pre-defined functions here to achieve a better analyse of reference object list.
+API for Reference Object Selection (Core Version).
+This module provides essential functions for reference object selection and quality assessment.
+The agent is encouraged to develop additional custom functions as needed for specific scenarios.
 """
 
 from typing import List, Dict, Any, Optional
 
 
-def filter_by_area(reference_objects: List[Dict[str, Any]], min_area: int = 0, max_area: Optional[int] = None) -> List[Dict[str, Any]]:
+def check_scale_consistency(reference_objects: List[Dict[str, Any]], tolerance: float = 0.3) -> List[Dict[str, Any]]:
     """
-    Filter reference objects based on their area in pixels.
+    Check if the scale ratios among objects of the same type are consistent,
+    and filter out objects with inconsistent scales.
     
     Args:
         reference_objects: List of reference objects
-        min_area: Minimum area in pixels (default: 0)
-        max_area: Maximum area in pixels (default: None - no upper limit)
+        tolerance: Allowed scale variation tolerance (percentage)
         
     Returns:
-        Filtered list of reference objects
+        Filtered list of reference objects with consistent scales
     """
-    if max_area is None:
-        return [obj for obj in reference_objects if obj.get('area_pixel', 0) >= min_area]
-    else:
-        return [obj for obj in reference_objects if min_area <= obj.get('area_pixel', 0) <= max_area]
-
-def prioritize_by_size(reference_objects: List[Dict[str, Any]], prefer_larger: bool = True) -> List[Dict[str, Any]]:
-    """
-    Sort reference objects by their size (area).
-    
-    Args:
-        reference_objects: List of reference objects
-        prefer_larger: If True, prefer larger objects; otherwise prefer smaller ones
-        
-    Returns:
-        Sorted list of reference objects
-    """
-    if prefer_larger:
-        return sorted(reference_objects, key=lambda x: x.get('area_pixel', 0), reverse=True)
-    else:
-        return sorted(reference_objects, key=lambda x: x.get('area_pixel', 0))
-
-def filter_by_known_dimensions(reference_objects: List[Dict[str, Any]], reference_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Filter reference objects to only include those with known real-world dimensions.
-    
-    Args:
-        reference_objects: List of reference objects
-        reference_list: List of reference objects with known dimensions
-        
-    Returns:
-        Filtered list of reference objects
-    """
-    known_types = [ref['type'] for ref in reference_list]
-    
-    return [
-        obj for obj in reference_objects 
-        if any(known_type in obj.get('obj', '').lower().split('_')[0] for known_type in known_types)
-    ]
-
-def select_diverse_references(reference_objects: List[Dict[str, Any]], min_objects: int = 3) -> List[Dict[str, Any]]:
-    """
-    Select a diverse set of reference objects, preferring different types.
-    
-    Args:
-        reference_objects: List of reference objects
-        min_objects: Minimum number of objects to select
-        
-    Returns:
-        List of diverse reference objects
-    """
-    selected = []
-    selected_types = set()
-    
-    # First pass: select one of each type
+    # Group objects by type
+    object_groups = {}
     for obj in reference_objects:
-        obj_type = obj.get('obj', '').split('_')[0]  # Extract base type
+        obj_type = obj.get('obj', '').split('_')[0]  # Extract base type (e.g., 'car' from 'car_1')
+        if obj_type not in object_groups:
+            object_groups[obj_type] = []
+        object_groups[obj_type].append(obj)
+    
+    # For each type, calculate scale ratios
+    consistent_objects = []
+    for obj_type, objects in object_groups.items():
+        if len(objects) <= 1:
+            consistent_objects.extend(objects)
+            continue
         
-        if obj_type not in selected_types:
-            selected.append(obj)
-            selected_types.add(obj_type)
+        # Calculate width and length scales for each object (if data available)
+        scales = []
+        for obj in objects:
+            if ('width_m' in obj and 'width_pixel' in obj and 
+                obj['width_m'] is not None and obj['width_pixel'] > 0):
+                scales.append(obj['width_m'] / obj['width_pixel'])
+            
+            if ('length_m' in obj and 'height_pixel' in obj and 
+                obj['length_m'] is not None and obj['height_pixel'] > 0):
+                scales.append(obj['length_m'] / obj['height_pixel'])
+        
+        if not scales:
+            consistent_objects.extend(objects)
+            continue
+        
+        # Calculate mean scale
+        mean_scale = sum(scales) / len(scales)
+        
+        # Filter objects within tolerance range
+        filtered_objects = []
+        for obj in objects:
+            obj_scales = []
+            if ('width_m' in obj and 'width_pixel' in obj and 
+                obj['width_m'] is not None and obj['width_pixel'] > 0):
+                obj_scales.append(obj['width_m'] / obj['width_pixel'])
+            
+            if ('length_m' in obj and 'height_pixel' in obj and 
+                obj['length_m'] is not None and obj['height_pixel'] > 0):
+                obj_scales.append(obj['length_m'] / obj['height_pixel'])
+            
+            if not obj_scales:
+                continue
+            
+            obj_mean_scale = sum(obj_scales) / len(obj_scales)
+            
+            # Check if object's scale is within tolerance range
+            if abs(obj_mean_scale - mean_scale) / mean_scale <= tolerance:
+                filtered_objects.append(obj)
+        
+        consistent_objects.extend(filtered_objects)
     
-    # Second pass: add more objects if needed
-    if len(selected) < min_objects:
-        remaining = [obj for obj in reference_objects if obj not in selected]
-        # Sort remaining by area (prefer larger objects)
-        remaining = sorted(remaining, key=lambda x: x.get('area_pixel', 0), reverse=True)
-        selected.extend(remaining[:min_objects - len(selected)])
-    
-    return selected
+    return consistent_objects
+
 
 def estimate_object_quality(obj: Dict[str, Any]) -> float:
     """
@@ -132,3 +121,55 @@ def estimate_object_quality(obj: Dict[str, Any]) -> float:
     
     # Ensure score is between 0 and 1
     return max(0.0, min(1.0, score))
+
+
+def select_diverse_objects(reference_objects: List[Dict[str, Any]], min_objects: int = 3, keep_best_per_type: bool = True) -> List[Dict[str, Any]]:
+    """
+    Select a diverse set of reference objects, prioritizing different types but 
+    keeping high-quality objects of the same type when needed.
+    
+    Args:
+        reference_objects: List of reference objects
+        min_objects: Minimum number of objects to select
+        keep_best_per_type: Whether to keep the best object of each type before considering others
+        
+    Returns:
+        List of diverse reference objects
+    """
+    if len(reference_objects) <= min_objects:
+        return reference_objects
+    
+    # Group objects by type
+    object_groups = {}
+    for obj in reference_objects:
+        obj_type = obj.get('obj', '').split('_')[0]  # Extract base type
+        if obj_type not in object_groups:
+            object_groups[obj_type] = []
+        object_groups[obj_type].append(obj)
+    
+    # First pass: select the best object of each type if requested
+    selected = []
+    remaining = []
+    
+    if keep_best_per_type:
+        for obj_type, objects in object_groups.items():
+            # Sort by quality and take the best
+            sorted_objects = sorted(objects, key=lambda x: x.get('quality', 0), reverse=True)
+            selected.append(sorted_objects[0])
+            # Add remaining objects to the pool
+            remaining.extend(sorted_objects[1:])
+    else:
+        # Just add all objects to the remaining pool
+        for objects in object_groups.values():
+            remaining.extend(objects)
+    
+    # If we need more objects, add from remaining pool based on quality and diversity score
+    if len(selected) < min_objects and remaining:
+        # Sort remaining by quality
+        remaining = sorted(remaining, key=lambda x: x.get('quality', 0), reverse=True)
+        
+        # Add objects until we reach the minimum or run out
+        while len(selected) < min_objects and remaining:
+            selected.append(remaining.pop(0))
+    
+    return selected
