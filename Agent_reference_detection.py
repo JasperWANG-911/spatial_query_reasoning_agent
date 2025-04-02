@@ -777,7 +777,7 @@ if __name__ == "__main__":
     agent = ReferenceDetectionAgent()
     
     # Run the complete workflow
-    image_path = "/Users/wangyinghao/Desktop/spatial_query_reasoning_agent/demo_P0038.png"
+    image_path = "../spatial_query_reasoning_agent/demo_P0038.png"
     query = "What is scale of image, i.e. how many meters per pixel"
     
     result = agent.run(image_path, query)
