@@ -138,45 +138,21 @@ class SpatialMetricAgent:
 if __name__ == "__main__":
     # Sample reference objects
     reference_objects = {
-  "tennis_court_1": {
-    "width_pixel": 86.85850524902344,
-    "height_pixel": 186.8498992919922,
-    "area_pixel": 16061,
-    "width_m": 10.97,
-    "length_m": 23.77,
-    "area_m": 260.76
+  "boeing_787_1": {
+    "width_pixel": 336.3642883300781,
+    "height_pixel": 539.3071899414062,
+    "area_pixel": 46958,
+    "width_m": 59.6,
+    "length_m": 70.6,
+    "area_m": 4207.76
   },
-  "car_1": {
-    "width_pixel": 19.661502838134766,
-    "height_pixel": 44.14406204223633,
-    "area_pixel": 788,
-    "width_m": 1.8,
-    "length_m": 4.5,
-    "area_m": 8.1
-  },
-  "tennis_court_2": {
-    "width_pixel": 86.7344970703125,
-    "height_pixel": 186.53628540039062,
-    "area_pixel": 15987,
-    "width_m": 10.97,
-    "length_m": 23.77,
-    "area_m": 260.76
-  },
-  "tennis_court_3": {
-    "width_pixel": 86.74920654296875,
-    "height_pixel": 187.03335571289062,
-    "area_pixel": 15841,
-    "width_m": 10.97,
-    "length_m": 23.77,
-    "area_m": 260.76
-  },
-  "tennis_court_4": {
-    "width_pixel": 87.0731430053711,
-    "height_pixel": 186.51870727539062,
-    "area_pixel": 15709,
-    "width_m": 10.97,
-    "length_m": 23.77,
-    "area_m": 260.76
+  "boeing_787_2": {
+    "width_pixel": 358.55816650390625,
+    "height_pixel": 503.2900085449219,
+    "area_pixel": 42466,
+    "width_m": 59.6,
+    "length_m": 70.6,
+    "area_m": 4207.76
   }
 }
 
