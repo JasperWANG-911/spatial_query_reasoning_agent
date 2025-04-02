@@ -1,8 +1,3 @@
-"""
-API for Grounded RS VLM
-This module provides a fixed GeoChat class (reimplemented using GPT-4o) for generating image descriptions and detecting objects.
-"""
-
 import os
 import json
 import base64
@@ -214,9 +209,6 @@ class GeoChat:
         
         # Initialize result list
         result_boxes = []
-        
-        # Import requests (make sure this is added at the top of your file)
-        import requests
         
         # Process each object type
         for obj_type in object_list:

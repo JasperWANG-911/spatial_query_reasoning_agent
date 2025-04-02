@@ -1,9 +1,3 @@
-"""
-API for Reference Object Selection (Core Version).
-This module provides essential functions for reference object selection and quality assessment.
-The agent is encouraged to develop additional custom functions as needed for specific scenarios.
-"""
-
 from typing import List, Dict, Any, Optional
 
 

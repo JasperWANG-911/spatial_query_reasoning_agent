@@ -1,8 +1,3 @@
-"""
-API for Vision Specialist(SAM2).
-This module provides a fixed SAM2 class for image segmentation and pixel measurements.
-"""
-
 import numpy as np
 import torch
 import cv2
