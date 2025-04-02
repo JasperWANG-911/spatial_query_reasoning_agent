@@ -5,8 +5,7 @@ from typing import List, Dict, Any
 from openai import OpenAI
 import requests
 
-# Predefined reference object list with known dimensions(to be modified)
-# Also, my idea is pre-defining this list is better than generating 
+# Predefined reference object list with known dimensions
 reference_object_list = [
     {
         "type": "car",
@@ -52,27 +51,27 @@ reference_object_list = [
     },
     {
         "type": "boeing_737",
-        "dimensions": {"length": 33.6, "width": 35.8},
-        "area": 1202.88,
-        "reliability": 0.9
+        "dimensions": {"length": 39.5, "width": 35.8},
+        "area": 285.46,
+        "reliability": 0.8
     },
     {
         "type": "boeing_787",
-        "dimensions": {"length": 70.6, "width": 59.6},
-        "area": 4207.76,
-        "reliability": 0.9
+        "dimensions": {"length": 56.7, "width": 60.1},
+        "area": 690.88,
+        "reliability": 0.8
     },
     {
         "type": "airbus_320",
         "dimensions": {"length": 37.57, "width": 35.8},
         "area": 282.36,
-        "reliability": 0.9
+        "reliability": 0.82
     },
     {
         "type": "airbus_330",
         "dimensions": {"length": 63.69, "width": 60.3},
         "area": 764.51,
-        "reliability": 0.9
+        "reliability": 0.83
     }
 ]
 
