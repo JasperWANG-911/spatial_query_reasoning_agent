@@ -139,61 +139,47 @@ if __name__ == "__main__":
     # Sample reference objects
     reference_objects = {
   "tennis_court_1": {
-    "width_pixel": 87.0731430053711,
-    "height_pixel": 186.51870727539062,
-    "area_pixel": 15709
+    "width_pixel": 86.85850524902344,
+    "height_pixel": 186.8498992919922,
+    "area_pixel": 16061,
+    "width_m": 10.97,
+    "length_m": 23.77,
+    "area_m": 260.76
+  },
+  "car_1": {
+    "width_pixel": 19.661502838134766,
+    "height_pixel": 44.14406204223633,
+    "area_pixel": 788,
+    "width_m": 1.8,
+    "length_m": 4.5,
+    "area_m": 8.1
   },
   "tennis_court_2": {
-    "width_pixel": 86.89117431640625,
-    "height_pixel": 187.02455139160156,
-    "area_pixel": 16082
-  },
-  "tennis_court_3": {
     "width_pixel": 86.7344970703125,
     "height_pixel": 186.53628540039062,
-    "area_pixel": 15987
+    "area_pixel": 15987,
+    "width_m": 10.97,
+    "length_m": 23.77,
+    "area_m": 260.76
   },
-  "tennis_court_4": {
-    "width_pixel": 87.48783874511719,
-    "height_pixel": 186.18226623535156,
-    "area_pixel": 15743
-  },
-  "tennis_court_5": {
+  "tennis_court_3": {
     "width_pixel": 86.74920654296875,
     "height_pixel": 187.03335571289062,
-    "area_pixel": 15838
+    "area_pixel": 15841,
+    "width_m": 10.97,
+    "length_m": 23.77,
+    "area_m": 260.76
   },
-  "tennis_court_6": {
-    "width_pixel": 85.97868347167969,
-    "height_pixel": 186.3462677001953,
-    "area_pixel": 15866
-  },
-  "tennis_court_7": {
-    "width_pixel": 85.7127685546875,
-    "height_pixel": 185.6812286376953,
-    "area_pixel": 15798
-  },
-  "tennis_court_8": {
-    "width_pixel": 85.43696594238281,
-    "height_pixel": 185.66976928710938,
-    "area_pixel": 15577
-  },
-  "tennis_court_9": {
-    "width_pixel": 85.4000015258789,
-    "height_pixel": 185.60000610351562,
-    "area_pixel": 15695
-  },
-  "tennis_court_10": {
-    "width_pixel": 85.7127685546875,
-    "height_pixel": 185.6812286376953,
-    "area_pixel": 15798
-  },
-  "tennis_court_11": {
-    "width_pixel": 86.57191467285156,
-    "height_pixel": 186.53997802734375,
-    "area_pixel": 15971
+  "tennis_court_4": {
+    "width_pixel": 87.0731430053711,
+    "height_pixel": 186.51870727539062,
+    "area_pixel": 15709,
+    "width_m": 10.97,
+    "length_m": 23.77,
+    "area_m": 260.76
   }
 }
+
     
     # Calculate scale
     agent = SpatialMetricAgent()

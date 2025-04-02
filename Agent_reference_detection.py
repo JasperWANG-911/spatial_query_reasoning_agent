@@ -121,7 +121,14 @@ class ReferenceDetectionAgent:
                 area_pixel = self.sam.compute_mask_pixel(mask)
                 
                 # Find reference information from predefined list
-                base_obj_type = obj_name.split('_')[0]  # Extract base type (e.g., 'car' from 'car_1')
+                if '_' in obj_name:
+                    # 找到最后一个下划线的位置
+                    last_underscore_pos = obj_name.rfind('_')
+                    # 提取最后一个下划线之前的所有内容
+                    base_obj_type = obj_name[:last_underscore_pos]
+                else:
+                    # 如果没有下划线，使用整个名称
+                    base_obj_type = obj_name
                 ref_info = next((ref for ref in self.reference_object_list if ref['type'] == base_obj_type), None)
                 
                 # Create comprehensive object info
@@ -134,20 +141,49 @@ class ReferenceDetectionAgent:
                     'area_pixel': area_pixel
                 }
                 
-                # Add reference dimensions if available
+                # 确保所有对象都有真实世界尺寸信息
                 if ref_info:
+                    # 添加尺寸信息
                     if 'dimensions' in ref_info:
                         dimensions = ref_info['dimensions']
                         if 'width' in dimensions:
                             obj_info['width_m'] = dimensions['width']
                         if 'length' in dimensions:
                             obj_info['length_m'] = dimensions['length']
+                    else:
+                        # 如果没有dimensions字段，添加默认值
+                        obj_info['width_m'] = 1.0  # 默认值
+                        obj_info['length_m'] = 2.0  # 默认值
+                        print(f"Warning: No dimension information for {base_obj_type}, using defaults")
+                    
+                    # 添加面积信息
                     if 'area' in ref_info:
                         obj_info['area_m'] = ref_info['area']
+                    elif 'width_m' in obj_info and 'length_m' in obj_info:
+                        # 如果没有area但有宽度和长度，计算面积
+                        obj_info['area_m'] = obj_info['width_m'] * obj_info['length_m']
+                    else:
+                        # 如果没有足够信息，添加默认值
+                        obj_info['area_m'] = 2.0  # 默认值
+                        print(f"Warning: No area information for {base_obj_type}, using default")
+                    
+                    # 添加可靠性信息
                     if 'reliability' in ref_info:
                         obj_info['reliability'] = ref_info['reliability']
+                    else:
+                        obj_info['reliability'] = 0.5  # 默认可靠性
+                else:
+                    # 如果在预定义列表中找不到该对象类型，使用默认值
+                    print(f"Warning: {base_obj_type} not found in reference object list, using default values")
+                    obj_info['width_m'] = 1.0
+                    obj_info['length_m'] = 2.0
+                    obj_info['area_m'] = 2.0
+                    obj_info['reliability'] = 0.3
                 
-                # Add quality score
+                # 计算纵横比用于质量评估
+                obj_info['aspect_ratio'] = height_pixel / width_pixel if width_pixel > 0 else 1.0
+                
+                # 添加质量评分
                 obj_info['quality'] = ref_selection.estimate_object_quality(obj_info)
                 
                 reference_objects.append(obj_info)
@@ -684,22 +720,37 @@ class ReferenceDetectionAgent:
         for obj in selected_objects:
             obj_name = obj['obj']
             
-            # Create a dictionary with measurements
+            # 创建包含所有必要测量值的字典
             measurements = {
                 'width_pixel': obj.get('width_pixel', 0),
                 'height_pixel': obj.get('height_pixel', 0),
                 'area_pixel': obj.get('area_pixel', 0)
             }
             
-            # Add real-world dimensions if available
-            if 'width_m' in obj:
-                measurements['width_m'] = obj['width_m']
-            if 'length_m' in obj:
-                measurements['length_m'] = obj['length_m']
-            if 'area_m' in obj:
-                measurements['area_m'] = obj['area_m']
+            # 确保添加所有真实世界尺寸
+            measurements['width_m'] = obj.get('width_m', 1.0)  # 使用默认值如果缺失
+            measurements['length_m'] = obj.get('length_m', 2.0)  # 使用默认值如果缺失
+            measurements['area_m'] = obj.get('area_m', 2.0)  # 使用默认值如果缺失
             
             final_output[obj_name] = measurements
+
+        # 验证所有对象都有必要的字段
+        for obj_name, obj_data in final_output.items():
+            missing_fields = []
+            for field in ['width_m', 'length_m', 'area_m']:
+                if field not in obj_data:
+                    missing_fields.append(field)
+            
+            if missing_fields:
+                print(f"Warning: Object {obj_name} is missing fields: {', '.join(missing_fields)}")
+                # 为缺失字段添加默认值
+                for field in missing_fields:
+                    if field == 'width_m':
+                        obj_data[field] = 1.0
+                    elif field == 'length_m':
+                        obj_data[field] = 2.0
+                    elif field == 'area_m':
+                        obj_data[field] = 2.0
 
         # Convert NumPy types to Python types for JSON serialization
         final_output = self._convert_numpy_types(final_output)
