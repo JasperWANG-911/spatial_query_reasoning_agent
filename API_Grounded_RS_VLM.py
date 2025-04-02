@@ -27,7 +27,7 @@ reference_object_list = [
     },
     {
         "type": "truck",
-        "dimensions": {"length": 16.0, "width": 2.5, "height": 4.0},
+        "dimensions": {"length": 16.0, "width": 2.5},
         "area": 40.0,
         "reliability": 0.9
     },
@@ -35,19 +35,19 @@ reference_object_list = [
         "type": "tennis_court",
         "dimensions": {"length": 23.77, "width": 10.97},
         "area": 260.76,
-        "reliability": 0.8
+        "reliability": 0.95
     },
     {
         "type": "basketball_court",
         "dimensions": {"length": 28.0, "width": 15.0},
         "area": 420.0,
-        "reliability": 0.8
+        "reliability": 0.9
     },
     {
         "type": "soccer_field",
         "dimensions": {"length": 105.0, "width": 68.0},
         "area": 7140.0,
-        "reliability": 0.8
+        "reliability": 0.9
     },
     {
         "type": "olympic_pool",
@@ -56,13 +56,13 @@ reference_object_list = [
         "reliability": 0.7
     },
     {
-        "type": "airbus_737",
+        "type": "boeing_737",
         "dimensions": {"length": 33.6, "width": 35.8},  # width includes wingspan
         "area": 1202.88,
         "reliability": 0.8
     },
     {
-        "type": "airbus_747",
+        "type": "boeing_787",
         "dimensions": {"length": 70.6, "width": 59.6},  # width includes wingspan
         "area": 4207.76,
         "reliability": 0.8

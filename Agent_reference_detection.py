@@ -1,6 +1,6 @@
 """
-Agent for Reference Detection (Simplified Version).
-This module implements a streamlined agent that detects and selects reference objects.
+Agent for Reference Detection.
+This module implements an agent that detects and selects reference objects in remote sensing imagery.
 """
 
 import os
@@ -16,7 +16,11 @@ import API_Reference_Object_Selection as ref_selection
 
 class ReferenceDetectionAgent:
     """
-    Simplified agent for detecting and selecting reference objects in remote sensing imagery.
+    Agent for detecting and selecting reference objects in remote sensing imagery.
+    
+    The agent uses a hybrid approach:
+    1. A fixed workflow to detect reference objects (GeoChat + SAM2)
+    2. A dynamic approach to select the most appropriate references for the query
     
     Workflow:
     1. Image -> GeoChat captioning -> List of potential objects
@@ -35,8 +39,6 @@ class ReferenceDetectionAgent:
         Returns:
             Object with NumPy types converted to standard Python types
         """
-        import numpy as np
-        
         if isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64,
                             np.uint8, np.uint16, np.uint32, np.uint64)):
             return int(obj)
@@ -164,23 +166,7 @@ class ReferenceDetectionAgent:
                 print(f"Warning: Could not visualize reference objects: {e}")
 
         return reference_objects
-    
-    def _convert_numpy_types(self, obj):
-        """Convert NumPy types to standard Python types for JSON serialization"""
-        if isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64,
-                            np.uint8, np.uint16, np.uint32, np.uint64)):
-            return int(obj)
-        elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, dict):
-            return {k: self._convert_numpy_types(v) for k, v in obj.items()}
-        elif isinstance(obj, list) or isinstance(obj, tuple):
-            return [self._convert_numpy_types(i) for i in obj]
-        else:
-            return obj
-    
+
     def dynamically_select_references(
         self, 
         reference_objects: List[Dict[str, Any]], 
@@ -208,35 +194,55 @@ class ReferenceDetectionAgent:
         strategy = selection_strategy['strategy']
         filtered_objects = reference_objects.copy()
         
+        # Debug log all objects at the start
+        print(f"Starting with {len(filtered_objects)} objects")
+        for i, obj in enumerate(filtered_objects):
+            obj_type = obj.get('obj', '').split('_')[0]
+            print(f"  {i+1}. {obj.get('obj', 'Unknown')} - Type: {obj_type}, Area: {obj.get('area_pixel', 0)} px, Quality: {obj.get('quality', 0):.2f}")
+        
         for step in strategy:
             step_type = step['type']
             
-            # Handle built-in functions from the API
-            if step_type == 'check_scale_consistency':
-                tolerance = step.get('tolerance', 0.3)
-                filtered_objects = ref_selection.check_scale_consistency(filtered_objects, tolerance)
-                print(f"After scale consistency check: {len(filtered_objects)} objects")
-                
-            elif step_type == 'select_diverse_objects':
-                min_objects = step.get('min_objects', 3)
-                keep_best_per_type = step.get('keep_best_per_type', True)
-                filtered_objects = ref_selection.select_diverse_objects(
-                    filtered_objects, min_objects, keep_best_per_type
-                )
-                print(f"After selecting diverse objects: {len(filtered_objects)} objects")
-                
+            # Handle predefined API functions
+            if step_type in ['check_scale_consistency', 'select_diverse_objects', 'balance_object_types', 'prioritize_larger_objects']:
+                try:
+                    # Extract parameters for the function call, excluding non-parameter fields
+                    params = {k: v for k, v in step.items() if k not in ['type', 'reason']}
+                    
+                    # 限制prioritize_larger_objects的min_area_pixel参数
+                    if step_type == 'prioritize_larger_objects' and 'min_area_pixel' in params:
+                        max_allowed = 300  # 设置允许的最大阈值
+                        if params['min_area_pixel'] > max_allowed:
+                            original_value = params['min_area_pixel']
+                            params['min_area_pixel'] = max_allowed
+                            print(f"Limiting min_area_pixel from {original_value} to {max_allowed}")
+                    
+                    # Call the appropriate function from the API
+                    func = getattr(ref_selection, step_type)
+                    filtered_objects = func(filtered_objects, **params)
+                    
+                    print(f"After {step_type}: {len(filtered_objects)} objects")
+                except Exception as e:
+                    print(f"Error executing {step_type}: {e}")
+            
+            # Handle custom operations
             elif step_type == 'custom_operation':
-                # Execute a custom operation directly from the GPT-4 plan
                 operation = step.get('operation', {})
                 operation_type = operation.get('type', '')
+                
                 print(f"Executing custom operation: {operation_type}")
                 
                 try:
-                    # Handle various types of custom operations
                     if operation_type == 'filter_by_area':
-                        # Filter objects based on their area in pixels
                         min_area = operation.get('min_area', 0)
                         max_area = operation.get('max_area', float('inf'))
+                        
+                        # 限制min_area参数
+                        max_allowed_min_area = 1000
+                        if min_area > max_allowed_min_area:
+                            print(f"Limiting min_area from {min_area} to {max_allowed_min_area}")
+                            min_area = max_allowed_min_area
+                        
                         filtered_objects = [
                             obj for obj in filtered_objects 
                             if min_area <= obj.get('area_pixel', 0) <= max_area
@@ -244,7 +250,6 @@ class ReferenceDetectionAgent:
                         print(f"After filtering by area: {len(filtered_objects)} objects")
                     
                     elif operation_type == 'filter_by_aspect_ratio':
-                        # Filter objects based on aspect ratio
                         min_ratio = operation.get('min_ratio', 0)
                         max_ratio = operation.get('max_ratio', float('inf'))
                         filtered_objects = [
@@ -255,7 +260,6 @@ class ReferenceDetectionAgent:
                         print(f"After filtering by aspect ratio: {len(filtered_objects)} objects")
                     
                     elif operation_type == 'prioritize_by_quality':
-                        # Sort objects by their quality scores
                         filtered_objects = sorted(
                             filtered_objects, 
                             key=lambda x: x.get('quality', 0), 
@@ -263,23 +267,29 @@ class ReferenceDetectionAgent:
                         )
                         # Take top N if specified
                         top_n = operation.get('top_n', len(filtered_objects))
-                        filtered_objects = filtered_objects[:top_n]
-                        print(f"After prioritizing by quality: selected top {len(filtered_objects)} objects")
+                        filtered_objects = filtered_objects[:min(top_n, len(filtered_objects))]
+                        print(f"After prioritizing by quality: {len(filtered_objects)} objects")
                     
+                    elif operation_type == 'filter_by_known_dimensions':
+                        filtered_objects = [
+                            obj for obj in filtered_objects
+                            if ('width_m' in obj or 'length_m' in obj or 'area_m' in obj)
+                        ]
+                        print(f"After filtering by known dimensions: {len(filtered_objects)} objects")
+
                     elif operation_type == 'custom_scoring':
-                        # Score objects based on custom criteria
-                        scoring_weights = operation.get('weights', {})
-                        size_weight = scoring_weights.get('size', 1.0)
-                        reliability_weight = scoring_weights.get('reliability', 1.0)
-                        quality_weight = scoring_weights.get('quality', 1.0)
+                        weights = operation.get('weights', {})
+                        size_weight = weights.get('size', 1.0)
+                        reliability_weight = weights.get('reliability', 1.0)
+                        quality_weight = weights.get('quality', 1.0)
+                        area_m_weight = weights.get('area_m', 0.0)
                         
-                        # Calculate scores
                         scored_objects = []
                         for obj in filtered_objects:
                             score = 0
+                            
                             # Size component
                             if size_weight > 0:
-                                # Normalize area to 0-1 range (assuming max area is 100,000 pixels)
                                 area_score = min(1.0, obj.get('area_pixel', 0) / 100000)
                                 score += size_weight * area_score
                             
@@ -290,19 +300,24 @@ class ReferenceDetectionAgent:
                             # Quality component
                             if quality_weight > 0:
                                 score += quality_weight * obj.get('quality', 0.5)
+                                
+                            # Real world area component
+                            if area_m_weight > 0 and 'area_m' in obj:
+                                area_m_score = min(1.0, obj.get('area_m', 0) / 10000)
+                                score += area_m_weight * area_m_score
                             
                             scored_objects.append((obj, score))
                         
                         # Sort by score and take top N
                         top_n = operation.get('top_n', len(filtered_objects))
-                        filtered_objects = [obj for obj, _ in sorted(scored_objects, key=lambda x: x[1], reverse=True)[:top_n]]
-                        print(f"After custom scoring: selected top {len(filtered_objects)} objects")
+                        filtered_objects = [obj for obj, _ in sorted(scored_objects, key=lambda x: x[1], reverse=True)[:min(top_n, len(scored_objects))]]
+                        print(f"After custom scoring: {len(filtered_objects)} objects")
                     
                     elif operation_type == 'combine_similar_objects':
                         # Group by object type
                         object_groups = {}
                         for obj in filtered_objects:
-                            obj_type = obj.get('obj', '').split('_')[0]  # Base type (e.g., 'car' from 'car_1')
+                            obj_type = obj.get('obj', '').split('_')[0]
                             if obj_type not in object_groups:
                                 object_groups[obj_type] = []
                             object_groups[obj_type].append(obj)
@@ -313,32 +328,51 @@ class ReferenceDetectionAgent:
                             if len(objects) == 1:
                                 combined_objects.append(objects[0])
                             else:
-                                # Use quality score to find the best representative
                                 best_obj = max(objects, key=lambda x: x.get('quality', 0))
                                 combined_objects.append(best_obj)
                         
                         filtered_objects = combined_objects
                         print(f"After combining similar objects: {len(filtered_objects)} objects")
                     
-                    elif operation_type == 'filter_by_known_dimensions':
-                        # Filter to only include objects with known real-world dimensions
-                        filtered_objects = [
-                            obj for obj in filtered_objects
-                            if ('width_m' in obj or 'length_m' in obj or 'area_m' in obj)
-                        ]
-                        print(f"After filtering by known dimensions: {len(filtered_objects)} objects")
-                    
-                    # Handle any other custom operations defined by the agent
+                    elif operation_type == 'prioritize_mix_object_types':
+                        # Group by object type
+                        object_groups = {}
+                        for obj in filtered_objects:
+                            obj_type = obj.get('obj', '').split('_')[0]
+                            if obj_type not in object_groups:
+                                object_groups[obj_type] = []
+                            object_groups[obj_type].append(obj)
+                        
+                        max_per_type = operation.get('max_per_type', 2)
+                        max_total = operation.get('max_total', 5)
+                        
+                        # Select top objects from each type
+                        mixed_objects = []
+                        for obj_type, objects in object_groups.items():
+                            # Sort by quality
+                            sorted_objs = sorted(objects, key=lambda x: x.get('quality', 0), reverse=True)
+                            # Add top N from each type
+                            mixed_objects.extend(sorted_objs[:min(max_per_type, len(sorted_objs))])
+                        
+                        # If we exceeded max_total, keep only the highest quality ones
+                        if len(mixed_objects) > max_total:
+                            mixed_objects = sorted(mixed_objects, key=lambda x: x.get('quality', 0), reverse=True)[:max_total]
+                        
+                        filtered_objects = mixed_objects
+                        print(f"After mixing object types: {len(filtered_objects)} objects")
+                        
                     elif operation_type.startswith('custom_'):
                         # Execute custom code generated by the GPT-4 model
                         custom_filter_code = operation.get('code', '')
                         if custom_filter_code:
-                            # Execute the custom filter code
-                            custom_filter = self._create_custom_filter(custom_filter_code)
-                            if custom_filter:
-                                filtered_objects = custom_filter(filtered_objects, operation)
-                                print(f"After custom filter '{operation_type}': {len(filtered_objects)} objects")
-                    
+                            try:
+                                # Execute the custom filter code
+                                custom_filter = self._create_custom_filter(custom_filter_code)
+                                if custom_filter:
+                                    filtered_objects = custom_filter(filtered_objects, operation)
+                                    print(f"After custom filter '{operation_type}': {len(filtered_objects)} objects")
+                            except Exception as e:
+                                print(f"Error in custom filter: {e}")
                     else:
                         print(f"Unknown custom operation type: {operation_type}")
                 
@@ -346,6 +380,12 @@ class ReferenceDetectionAgent:
                     print(f"Error executing custom operation: {e}")
                     import traceback
                     traceback.print_exc()
+        
+        # Debug log remaining objects at the end
+        print(f"Final selection: {len(filtered_objects)} objects")
+        for i, obj in enumerate(filtered_objects):
+            obj_type = obj.get('obj', '').split('_')[0]
+            print(f"  {i+1}. {obj.get('obj', 'Unknown')} - Type: {obj_type}, Area: {obj.get('area_pixel', 0)} px, Quality: {obj.get('quality', 0):.2f}")
         
         return filtered_objects
 
@@ -416,26 +456,36 @@ class ReferenceDetectionAgent:
             }
             obj_summaries.append(summary)
         
+        # Get the unique object types
+        object_types = set()
+        for obj in obj_summaries:
+            obj_type = obj.get('obj', '').split('_')[0]  # Extract base type
+            object_types.add(obj_type)
+        
         # Convert obj_summaries to JSON-serializable format
         obj_summaries_converted = self._convert_numpy_types(obj_summaries)
         
         # Create the prompt for GPT-4
         api_descriptions = """
-        You have access to three core functions:
-        
+        You have access to a set of CORE API FUNCTIONS that help with reference object selection:
+
         1. check_scale_consistency(reference_objects, tolerance=0.3):
-        Checks if scale ratios (meters/pixels) among objects of the same type are consistent,
-        and filters out objects with inconsistent scales. Helps ensure accurate measurements.
-        
-        2. estimate_object_quality(obj):
-        Estimates the quality of a reference object (already calculated for each object).
-        
-        3. select_diverse_objects(reference_objects, min_objects=3, keep_best_per_type=True):
-        Selects a diverse set of reference objects, prioritizing different types but 
-        keeping high-quality objects of the same type when needed.
-        
-        CUSTOM OPERATIONS:
-        Besides the core functions, you can create custom operations. Include a step with:
+           Checks if scale ratios (meters/pixels) among objects of the same type are consistent,
+           filtering out objects with inconsistent scales.
+
+        2. select_diverse_objects(reference_objects, min_objects=3, keep_best_per_type=True):
+           Selects a diverse set of reference objects, prioritizing different types while
+           keeping high-quality objects.
+
+        3. balance_object_types(reference_objects, min_per_type=1, max_total=5):
+           Ensures a balance of different object types in the selected references.
+
+        4. prioritize_larger_objects(reference_objects, min_area_pixel=500, min_objects=2):
+           Prioritizes larger objects that typically provide more accurate scale references.
+
+        IN ADDITION, you can create CUSTOM OPERATIONS when the core functions are insufficient.
+        Create a custom operation using this format:
+
         {
             "type": "custom_operation",
             "reason": "Why this operation is needed",
@@ -444,100 +494,116 @@ class ReferenceDetectionAgent:
                 // Additional parameters specific to the operation
             }
         }
-        
-        Available custom operation types:
-        
+
+        Some useful custom operations include:
+
         1. filter_by_area:
-        {
-            "type": "filter_by_area",
-            "min_area": 1000,
-            "max_area": 50000
-        }
-        
+           {
+               "type": "filter_by_area",
+               "min_area": 1000,
+               "max_area": 50000
+           }
+
         2. filter_by_aspect_ratio:
-        {
-            "type": "filter_by_aspect_ratio",
-            "min_ratio": 0.5,
-            "max_ratio": 2.0
-        }
-        
+           {
+               "type": "filter_by_aspect_ratio",
+               "min_ratio": 0.5,
+               "max_ratio": 2.0
+           }
+
         3. prioritize_by_quality:
-        {
-            "type": "prioritize_by_quality",
-            "top_n": 3
-        }
-        
+           {
+               "type": "prioritize_by_quality",
+               "top_n": 6
+           }
+
         4. custom_scoring:
-        {
-            "type": "custom_scoring",
-            "weights": {
-                "size": 1.0,
-                "reliability": 1.5,
-                "quality": 2.0
-            },
-            "top_n": 3
-        }
-        
+           {
+               "type": "custom_scoring",
+               "weights": {
+                   "size": 1.0,
+                   "reliability": 1.5,
+                   "quality": 2.0,
+                   "area_m": 1.0
+               },
+               "top_n": 3
+           }
+
         5. combine_similar_objects:
-        {
-            "type": "combine_similar_objects"
-        }
-        
+           {
+               "type": "combine_similar_objects"
+           }
+
         6. filter_by_known_dimensions:
-        {
-            "type": "filter_by_known_dimensions"
-        }
-        
-        7. For completely custom behavior, you can define your own operation starting with "custom_":
-        {
-            "type": "custom_specialized_filter",
-            "description": "A specialized filter that...",
-            "code": "def custom_filter(objects, params):\\n    # Your filtering logic here\\n    return filtered_objects"
-        }
+           {
+               "type": "filter_by_known_dimensions"
+           }
+
+        7. prioritize_mix_object_types:
+           {
+               "type": "prioritize_mix_object_types",
+               "max_per_type": 2,
+               "max_total": 5
+           }
+
+        8. For completely custom behavior, you can define a custom filter:
+           {
+               "type": "custom_specialized_filter",
+               "description": "A custom filter that...",
+               "code": "def custom_filter(objects, params):\\n    # Your filtering logic here\\n    return filtered_objects"
+           }
+
+        You should choose a mix of CORE API FUNCTIONS and CUSTOM OPERATIONS that best address
+        the specific query being analyzed.
         """
         
         prompt = f"""
         You are a dynamic agent for reference object selection in remote sensing imagery.
         
-        Original query: {query}
+        Original query: "{query}"
         
         You've detected the following reference objects:
         {json.dumps(obj_summaries_converted, indent=2)}
         
         {api_descriptions}
         
-        Based on the query and detected objects, create a strategy for selecting the most appropriate
-        reference objects. Return your strategy as a JSON object with the following structure:
+        Your task is to create a strategy for selecting the most appropriate reference objects.
+        Return your strategy as a JSON object with this structure:
         
         {{
             "strategy_name": "Brief name of your strategy",
-            "reasoning": "Your reasoning about why you chose this strategy",
+            "reasoning": "Detailed reasoning about why you chose this strategy",
             "strategy": [
                 {{
-                    "type": "function_name",  // One of the available functions or "custom_operation"
+                    "type": "function_name_or_custom_operation",
                     "reason": "Why this step is needed",
-                    // Additional parameters specific to the function:
-                    "tolerance": 0.3,  // For check_scale_consistency
-                    "min_objects": 3,  // For select_diverse_objects
-                    "keep_best_per_type": true,  // For select_diverse_objects
-                    
-                    // For custom_operation:
-                    "operation": {{
-                        "type": "custom_scoring",
-                        "weights": {{"size": 1.0, "reliability": 1.5, "quality": 2.0}},
-                        "top_n": 3
-                    }}
+                    // Additional parameters specific to the function
                 }}
             ]
         }}
         
-        Choose functions, custom operations, and parameters that best suit the specific query and available objects.
-        Create a strategy of 2-4 steps that will effectively filter and select the most appropriate reference objects.
+        IMPORTANT STRATEGIC GUIDELINES:
         
-        IMPORTANT NOTES:
-        1. Since scale consistency is crucial for accurate measurements, strongly consider using the check_scale_consistency function.
-        2. If you think a completely custom filter would be beneficial, you can provide the Python code for it.
-        3. Be creative and adaptive - design a strategy specifically tailored to the query and available objects.
+        1. For queries about scale calculation:
+           - For scale calculation specifically, consider selecting 5-6 diverse reference objects 
+             instead of just 2-3 to ensure more robust results.
+           - When multiple object types are available (like cars AND tennis courts), prefer larger objects
+             like tennis courts over smaller ones like cars, as they typically provide more accurate scale references.
+           - Tennis courts (23.77 x 10.97m) provide more stable references than cars (4.5 x 1.8m).
+           - Always include at least one object of each detected type for better diversity and reliability.
+           
+        2. For queries about specific objects:
+           - Balance reliability and relevance to the query.
+           - When possible, include objects from different parts of the image for better spatial coverage.
+           
+        3. General considerations:
+           - Consider checking scale consistency with check_scale_consistency().
+           - Ensure diversity with select_diverse_objects() or custom operations.
+           - Larger objects typically have more accurate measurements due to higher pixel counts.
+           - If you need very specific filtering beyond the standard operations, create a custom filter.
+           
+        Be CREATIVE and ADAPTIVE. Design a strategy with 2-4 steps that is SPECIFICALLY TAILORED 
+        to the query: "{query}" and the detected objects.
         """
         
         response = self.openai_client.chat.completions.create(
@@ -558,8 +624,8 @@ class ReferenceDetectionAgent:
             print(f"Error parsing GPT-4 response: {e}")
             # Return a default strategy if parsing fails
             return {
-                "strategy_name": "Default scale-consistent quality-based strategy",
-                "reasoning": "Ensuring consistent scale measurements while prioritizing quality",
+                "strategy_name": "Default diverse reference selection",
+                "reasoning": "Providing a balanced set of reference objects for general purposes",
                 "strategy": [
                     {
                         "type": "check_scale_consistency",
@@ -568,18 +634,16 @@ class ReferenceDetectionAgent:
                     },
                     {
                         "type": "custom_operation",
-                        "reason": "Rank objects by quality score",
+                        "reason": "Prioritize objects with known real-world dimensions",
                         "operation": {
-                            "type": "custom_scoring",
-                            "weights": {"quality": 1.0, "reliability": 1.0},
-                            "top_n": 3
+                            "type": "filter_by_known_dimensions"
                         }
                     },
                     {
-                        "type": "select_diverse_objects",
-                        "reason": "Ensure diversity in the selected references",
-                        "min_objects": 3,
-                        "keep_best_per_type": true
+                        "type": "balance_object_types",
+                        "reason": "Ensure diverse object types are represented",
+                        "min_per_type": 1,
+                        "max_total": 5
                     }
                 ]
             }
@@ -637,18 +701,18 @@ class ReferenceDetectionAgent:
             
             final_output[obj_name] = measurements
 
-            # 创建 final_output 之后，在返回前进行转换
+        # Convert NumPy types to Python types for JSON serialization
         final_output = self._convert_numpy_types(final_output)
 
         try:
-            # 找到原始参考对象列表中的选定对象
+            # Find selected objects in the original list for visualization
             selected_obj_names = list(final_output.keys())
-            selected_objects = [obj for obj in reference_objects if obj.get('obj', '') in selected_obj_names]
+            selected_objects_for_vis = [obj for obj in reference_objects if obj.get('obj', '') in selected_obj_names]
             
-            # 可视化选定的参考对象
-            if selected_objects:
+            # Visualize selected reference objects
+            if selected_objects_for_vis:
                 visualization_path = os.path.join(os.path.dirname(image_path), "selected_reference_objects.jpg")
-                self.sam.visualize_multiple_objects(image_path, selected_objects, save_path=visualization_path)
+                self.sam.visualize_multiple_objects(image_path, selected_objects_for_vis, save_path=visualization_path)
                 print(f"Selected reference objects visualization saved to {visualization_path}")
         except Exception as e:
             print(f"Warning: Could not visualize selected reference objects: {e}")
@@ -662,7 +726,7 @@ if __name__ == "__main__":
     agent = ReferenceDetectionAgent()
     
     # Run the complete workflow
-    image_path = "/Users/wangyinghao/Desktop/spatial_query_reasoning_agent/demo_P0881.png"
+    image_path = "/Users/wangyinghao/Desktop/spatial_query_reasoning_agent/demo_P0241.png"
     query = "What is scale of image, i.e. how many meters per pixel"
     
     result = agent.run(image_path, query)
