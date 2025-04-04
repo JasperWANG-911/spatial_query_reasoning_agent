@@ -1,10 +1,3 @@
-"""
-Agent_Calculation.py - Agent for real-world spatial metric calculation in remote sensing imagery.
-
-This module implements an agent that selects an appropriate algorithm for scale factor calculation
-and applies it to determine real-world dimensions from pixel measurements.
-"""
-
 import os
 import json
 from typing import Dict, Any, Optional, List
@@ -15,23 +8,7 @@ from openai import OpenAI
 import API_Algorithm as alg
 
 class SpatialMetricCalculationAgent:
-    """
-    Agent for calculating real-world spatial metrics from remote sensing imagery.
-    
-    This agent dynamically selects the most appropriate scale calculation algorithm 
-    based on the characteristics of the reference objects and the nature of the query.
-    
-    It can either use the three pre-defined algorithms from API_Algorithm or develop
-    a custom algorithm when necessary.
-    """
-    
     def __init__(self, openai_api_key: Optional[str] = None):
-        """
-        Initialize the Spatial Metric Calculation Agent.
-        
-        Args:
-            openai_api_key: OpenAI API key for GPT-4 calls (optional, will use env var if not provided)
-        """
         # Initialize OpenAI client for advanced reasoning and algorithm selection
         self.openai_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
         if self.openai_api_key:
@@ -41,15 +18,7 @@ class SpatialMetricCalculationAgent:
             print("Warning: No OpenAI API key provided. Advanced reasoning capabilities will be limited.")
     
     def _convert_numpy_types(self, obj):
-        """
-        Convert NumPy types to standard Python types for JSON serialization.
-        
-        Args:
-            obj: Object containing potential NumPy data types
-            
-        Returns:
-            Object with NumPy types converted to standard Python types
-        """
+        """Convert NumPy types to standard Python types for JSON serialization."""
         if isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64,
                             np.uint8, np.uint16, np.uint32, np.uint64)):
             return int(obj)
@@ -65,19 +34,7 @@ class SpatialMetricCalculationAgent:
             return obj
     
     def select_algorithm(self, reference_objects: Dict[str, Dict[str, Any]], query: str) -> Dict[str, Any]:
-        """
-        Select the most appropriate algorithm for scale calculation based on the reference objects and query.
-        
-        This method analyzes the characteristics of the reference objects and uses GPT-4 (if available)
-        to make an informed decision on which algorithm to use.
-        
-        Args:
-            reference_objects: Dictionary of reference objects with their measurements
-            query: The original user query
-            
-        Returns:
-            Dictionary with selected algorithm and reasoning
-        """
+        """Select the most appropriate algorithm for scale calculation based on the reference objects and query with reasoning."""
         if not reference_objects:
             raise ValueError("No reference objects provided")
         
@@ -241,16 +198,7 @@ class SpatialMetricCalculationAgent:
         }
     
     def calculate_scale_factor(self, reference_objects: Dict[str, Dict[str, Any]], query: str = "") -> Dict[str, Any]:
-        """
-        Select an algorithm and calculate the scale factor for the given reference objects.
-        
-        Args:
-            reference_objects: Dictionary of reference objects with their measurements
-            query: The original user query (used for algorithm selection)
-            
-        Returns:
-            Dictionary with scale factor and calculation details
-        """
+        """Select an algorithm and calculate the scale factor for the given reference objects."""
         if not reference_objects:
             raise ValueError("No reference objects provided")
         
@@ -333,16 +281,7 @@ class SpatialMetricCalculationAgent:
         }
     
     def calculate_real_world_dimensions(self, pixel_dimensions: Dict[str, float], scale_factor: float) -> Dict[str, float]:
-        """
-        Calculate real-world dimensions from pixel dimensions using the scale factor.
-        
-        Args:
-            pixel_dimensions: Dictionary of pixel dimensions (width, height, area, etc.)
-            scale_factor: Scale factor in meters/pixel
-            
-        Returns:
-            Dictionary of real-world dimensions in meters
-        """
+        """Calculate real-world dimensions from pixel dimensions using the scale factor."""
         real_world = {}
         
         if 'width' in pixel_dimensions:
@@ -365,17 +304,7 @@ class SpatialMetricCalculationAgent:
         return real_world
     
     def run(self, reference_objects: Dict[str, Dict[str, Any]], pixel_dimensions: Dict[str, float], query: str = "") -> Dict[str, Any]:
-        """
-        Execute the complete workflow: select algorithm, calculate scale factor, and convert dimensions.
-        
-        Args:
-            reference_objects: Dictionary of reference objects with their measurements
-            pixel_dimensions: Dictionary of pixel dimensions for the object of interest
-            query: The original user query
-            
-        Returns:
-            Dictionary with scale factor, calculation details, and real-world dimensions
-        """
+        """Execute the complete workflow: select algorithm, calculate scale factor, and convert dimensions."""
         # Step 1: Calculate scale factor
         scale_result = self.calculate_scale_factor(reference_objects, query)
         scale_factor = scale_result["scale_factor"]
@@ -393,70 +322,3 @@ class SpatialMetricCalculationAgent:
             "pixel_dimensions": pixel_dimensions,
             "real_world_dimensions": real_world_dimensions
         }
-
-
-# Example usage
-if __name__ == "__main__":
-    # Initialize agent
-    agent = SpatialMetricCalculationAgent()
-    
-    # Example reference objects (from ReferenceDetectionAgent)
-    reference_objects = {
-  "boeing_787_1": {
-    "width_pixel": 336.3642883300781,
-    "height_pixel": 539.3071899414062,
-    "area_pixel": 46958,
-    "width_m": 60.1,
-    "length_m": 56.7,
-    "area_m": 690.88
-  },
-  "airbus_320_1": {
-    "width_pixel": 177.587158203125,
-    "height_pixel": 260.5806884765625,
-    "area_pixel": 16415,
-    "width_m": 35.8,
-    "length_m": 37.57,
-    "area_m": 282.36
-  },
-  "boeing_787_2": {
-    "width_pixel": 358.55816650390625,
-    "height_pixel": 503.2900085449219,
-    "area_pixel": 42466,
-    "width_m": 60.1,
-    "length_m": 56.7,
-    "area_m": 690.88
-  },
-  "airbus_320_2": {
-    "width_pixel": 215.10107421875,
-    "height_pixel": 225.98960876464844,
-    "area_pixel": 13625,
-    "width_m": 35.8,
-    "length_m": 37.57,
-    "area_m": 282.36
-  },
-  "airbus_320_3": {
-    "width_pixel": 218.79861450195312,
-    "height_pixel": 248.78758239746094,
-    "area_pixel": 20192,
-    "width_m": 35.8,
-    "length_m": 37.57,
-    "area_m": 282.36
-  }
-}
-    
-    # Example pixel dimensions of object of interest
-    pixel_dimensions = {
-        "width": 250,
-        "height": 400,
-        "area": 100000
-    }
-    
-    # Example query
-    query = "What is the real-world area of the building in the image?"
-    
-    # Run the agent
-    result = agent.run(reference_objects, pixel_dimensions, query)
-    
-    print(f"Scale Factor: {result['scale_factor']:.6f} {result['units']}")
-    print(f"Algorithm: {result['algorithm_name']}")
-    print(f"Real-world dimensions: {result['real_world_dimensions']}")

@@ -1,31 +1,10 @@
-"""
-API_Algorithm.py - Core algorithms for scale factor calculation in remote sensing imagery.
-
-This module provides three fundamental algorithms to calculate scale factors (meters/pixel) 
-from reference objects with known real-world dimensions.
-"""
-
 from typing import Dict, Any, List
 import numpy as np
 import math
 
 
 def calculate_scale_by_weighted_area(reference_objects: Dict[str, Dict[str, Any]]) -> float:
-    """
-    Calculate scale factor using a weighted approach based on pixel area.
-    
-    This method weights each reference object's scale factor by its pixel area,
-    giving more influence to larger objects which typically have more reliable measurements.
-    
-    Formula:
-        S = ∑(Wi * Si) where Wi = Ai / ∑Aj and Si = sqrt(area_m / area_pixel)
-    
-    Args:
-        reference_objects: Dictionary of reference objects with their measurements
-        
-    Returns:
-        Weighted scale factor in meters/pixel
-    """
+    """Calculate scale factor using a weighted approach based on pixel area"""
     if not reference_objects:
         raise ValueError("No reference objects provided")
     
@@ -68,18 +47,7 @@ def calculate_scale_by_weighted_area(reference_objects: Dict[str, Dict[str, Any]
 
 
 def calculate_scale_by_least_squares(reference_objects: Dict[str, Dict[str, Any]]) -> float:
-    """
-    Calculate scale factor using a least squares approach.
-    
-    This method minimizes the squared differences between real-world dimensions
-    and pixel dimensions scaled by the factor, finding the optimal scaling.
-    
-    Args:
-        reference_objects: Dictionary of reference objects with their measurements
-        
-    Returns:
-        Least squares optimized scale factor in meters/pixel
-    """
+    """Calculate scale factor using a least squares approach"""
     if not reference_objects:
         raise ValueError("No reference objects provided")
     
@@ -111,11 +79,6 @@ def calculate_scale_by_least_squares(reference_objects: Dict[str, Dict[str, Any]
     pixel_dims = np.array(pixel_dims)
     real_dims = np.array(real_dims)
     
-    # Least squares solution (no intercept):
-    # We want to find scale_factor such that real_dims ≈ scale_factor * pixel_dims
-    # This is equivalent to minimizing sum((real_dims - scale_factor * pixel_dims)²)
-    
-    # The analytical solution is:
     # scale_factor = (pixel_dims·real_dims) / (pixel_dims·pixel_dims)
     scale_factor = np.dot(pixel_dims, real_dims) / np.dot(pixel_dims, pixel_dims)
     
@@ -123,18 +86,7 @@ def calculate_scale_by_least_squares(reference_objects: Dict[str, Dict[str, Any]
 
 
 def calculate_scale_by_median_ratio(reference_objects: Dict[str, Dict[str, Any]]) -> float:
-    """
-    Calculate scale factor using the median of individual object ratios.
-    
-    This method is robust against outliers as it takes the median rather than mean
-    of all individual scale factors computed from each object.
-    
-    Args:
-        reference_objects: Dictionary of reference objects with their measurements
-        
-    Returns:
-        Median scale factor in meters/pixel
-    """
+    """Calculate scale factor using the median of individual object ratios."""
     if not reference_objects:
         raise ValueError("No reference objects provided")
     
