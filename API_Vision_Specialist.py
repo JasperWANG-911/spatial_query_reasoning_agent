@@ -10,7 +10,7 @@ class SAM2:
     """
     SAM2 class with functionality: 
         -(1) segmentation 
-        -(2) generate smallest bbox for mask
+        -(2) generate smallest bbox for mask using PCA principal axes
         -(3) calculate width of bbox
         -(4) calculate height of bbox
         -(5) calculate area of bbox
@@ -52,16 +52,81 @@ class SAM2:
         return masks[np.argmax(scores)]  # Return mask with highest score
 
     def get_smallest_bounding_box(self, mask):
-        """ Obtain smallest bounding box from mask """
-        contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        """ Obtain smallest bounding box from mask using PCA to align with the principal axes"""
+        # Convert mask to uint8 format and find contours
+        mask_uint8 = mask.astype(np.uint8)
+        contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
         if not contours:
             print("Warning: No contours found in mask.")
             return None, None
-
+        
+        # Get largest contour by area
         largest_contour = max(contours, key=cv2.contourArea)
-        rect = cv2.minAreaRect(largest_contour)
-        box = cv2.boxPoints(rect)
-        return np.int0(box), rect  # Convert coordinates to integer values
+        
+        # Get all points from the contour
+        points = largest_contour.reshape(-1, 2).astype(np.float32)
+        
+        if len(points) < 3:
+            print("Warning: Not enough points in contour for PCA.")
+            # Fallback to standard minAreaRect
+            rect = cv2.minAreaRect(largest_contour)
+            box = cv2.boxPoints(rect)
+            return np.int0(box), rect
+        
+        # Calculate mean of points (centroid)
+        mean = np.mean(points, axis=0)
+        
+        # Center the points by subtracting the mean
+        centered_points = points - mean
+        
+        # Compute covariance matrix
+        cov_matrix = np.cov(centered_points.T)
+        
+        # Compute eigenvalues and eigenvectors of the covariance matrix
+        eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+        
+        # Sort eigenvectors by eigenvalues in descending order
+        sort_indices = np.argsort(eigenvalues)[::-1]
+        eigenvalues = eigenvalues[sort_indices]
+        eigenvectors = eigenvectors[:, sort_indices]
+        
+        # Project points onto the principal components
+        projected_points = np.dot(centered_points, eigenvectors)
+        
+        # Find the min and max along each principal component
+        min_coords = np.min(projected_points, axis=0)
+        max_coords = np.max(projected_points, axis=0)
+        
+        # Calculate the four corners in the PCA space
+        corners_pca = np.array([
+            [min_coords[0], min_coords[1]],
+            [max_coords[0], min_coords[1]],
+            [max_coords[0], max_coords[1]],
+            [min_coords[0], max_coords[1]]
+        ])
+        
+        # Transform corners back to original space
+        corners_original = np.dot(corners_pca, eigenvectors.T) + mean
+        
+        # Convert to integer for pixel coordinates
+        box = np.int0(corners_original)
+        
+        # Calculate rectangle information for compatibility with existing code
+        # (center, dimensions, angle)
+        width = max_coords[0] - min_coords[0]
+        height = max_coords[1] - min_coords[1]
+        
+        # Calculate angle: angle between first eigenvector and x-axis in degrees
+        angle = np.degrees(np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0]))
+        
+        # Ensure width is always the smaller dimension for consistency
+        if width < height:
+            rect = ((mean[0], mean[1]), (width, height), angle)
+        else:
+            rect = ((mean[0], mean[1]), (height, width), angle + 90)
+        
+        return box, rect
 
     def measure_width(self, image_path, x1, y1, x2, y2):
         """ Segment object and measure width """
@@ -109,17 +174,6 @@ class SAM2:
         return pixel_count
     
     def visualize_segmentation(self, image, mask, box=None, rect=None, save_path=None, obj_name=None):
-        """
-        Visualize segmentation results with measurements.
-        
-        Args:
-            image: Input image
-            mask: Segmentation mask
-            box: Bounding box points
-            rect: Rectangle information from cv2.minAreaRect
-            save_path: Path to save visualization (if None, display instead)
-            obj_name: Optional object name to display
-        """
         # Create a copy of the image for visualization
         vis_image = image.copy()
         
@@ -205,14 +259,7 @@ class SAM2:
         return vis_image
     
     def visualize_multiple_objects(self, image_path, objects_info, save_path=None):
-        """
-        Visualize multiple segmented objects in one image.
-        
-        Args:
-            image_path: Path to the input image
-            objects_info: List of dictionaries with 'obj_name', 'mask', 'bbox', etc.
-            save_path: Path to save visualization (if None, display instead)
-        """
+        """Visualize multiple segmented objects in one image"""
         # Load the original image
         image = self.load_image(image_path)
         
@@ -241,8 +288,15 @@ class SAM2:
             alpha = 0.4
             vis_image = cv2.addWeighted(color_mask, alpha, vis_image, 1, 0)
             
-            # Get bounding box info
-            if 'bbox' in obj_info:
+            # Calculate minimal oriented bounding box using PCA
+            box, rect = self.get_smallest_bounding_box(mask)
+            
+            # Draw oriented bounding box if available
+            if box is not None and len(box) == 4:
+                for j in range(4):
+                    cv2.line(vis_image, tuple(box[j]), tuple(box[(j+1) % 4]), color, 2)
+            # If oriented box not available, fall back to regular bbox
+            elif 'bbox' in obj_info:
                 x1, y1, x2, y2 = obj_info['bbox']
                 cv2.rectangle(vis_image, (x1, y1), (x2, y2), color, 2)
             

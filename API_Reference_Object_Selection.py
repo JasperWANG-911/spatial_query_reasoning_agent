@@ -190,7 +190,7 @@ def balance_object_types(reference_objects: List[Dict[str, Any]], min_per_type: 
 
 
 def prioritize_larger_objects(reference_objects: List[Dict[str, Any]], min_area_pixel: int = 200, min_objects: int = 2) -> List[Dict[str, Any]]:
-    """Prioritize larger objects that typically provide more accurate scale references."""
+    """Prioritize larger objects that typically provide more accurate scale references"""
     # Separate large objects from small ones
     large_objects = [obj for obj in reference_objects if obj.get('area_pixel', 0) >= min_area_pixel]
     small_objects = [obj for obj in reference_objects if obj.get('area_pixel', 0) < min_area_pixel]

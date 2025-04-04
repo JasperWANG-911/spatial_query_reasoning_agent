@@ -1,8 +1,3 @@
-"""
-Agent for Reference Detection.
-This module implements an agent that detects and selects reference objects in remote sensing imagery.
-"""
-
 import os
 import json
 from typing import List, Dict, Any, Optional, Tuple, Union
@@ -19,7 +14,7 @@ class ReferenceDetectionAgent:
     Agent for detecting and selecting reference objects in remote sensing imagery.
     
     The agent uses a hybrid approach:
-    1. A fixed workflow to detect reference objects (GeoChat + SAM2)
+    1. A fixed workflow to detect reference objects (GeoChat, AOD, GPT4, SAM2)
     2. A dynamic approach to select the most appropriate references for the query
     
     Workflow:
@@ -30,15 +25,7 @@ class ReferenceDetectionAgent:
     5. Dynamic selection of reference objects based on query
     """
     def _convert_numpy_types(self, obj):
-        """
-        Convert NumPy types to standard Python types for JSON serialization.
-        
-        Args:
-            obj: Object containing potential NumPy data types
-            
-        Returns:
-            Object with NumPy types converted to standard Python types
-        """
+        """Convert NumPy types to standard Python types for JSON serialization"""
         if isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64,
                             np.uint8, np.uint16, np.uint32, np.uint64)):
             return int(obj)
@@ -54,12 +41,6 @@ class ReferenceDetectionAgent:
             return obj
 
     def __init__(self, openai_api_key: Optional[str] = None):
-        """
-        Initialize the Reference Detection Agent.
-        
-        Args:
-            openai_api_key: OpenAI API key for GPT-4 calls (optional, will use env var if not provided)
-        """
         # Initialize OpenAI client
         self.openai_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
         self.openai_client = OpenAI(api_key=self.openai_api_key)
@@ -72,15 +53,8 @@ class ReferenceDetectionAgent:
         self.reference_object_list = reference_object_list
     
     def execute_fixed_workflow(self, image_path: str) -> List[Dict[str, Any]]:
-        """
-        Execute the fixed part of the workflow to detect reference objects.
-        
-        Args:
-            image_path: Path to the input image
-            
-        Returns:
-            List of detected reference objects with comprehensive information
-        """
+        """Execute the fixed part of the workflow to detect reference objects."""
+
         # Step 1: Get image description from GeoChat
         image_description = self.geochat.generate_captionning(image_path)
         print(f"Image description: {image_description}")
@@ -122,12 +96,9 @@ class ReferenceDetectionAgent:
                 
                 # Find reference information from predefined list
                 if '_' in obj_name:
-                    # 找到最后一个下划线的位置
                     last_underscore_pos = obj_name.rfind('_')
-                    # 提取最后一个下划线之前的所有内容
                     base_obj_type = obj_name[:last_underscore_pos]
                 else:
-                    # 如果没有下划线，使用整个名称
                     base_obj_type = obj_name
                 ref_info = next((ref for ref in self.reference_object_list if ref['type'] == base_obj_type), None)
                 
@@ -138,52 +109,33 @@ class ReferenceDetectionAgent:
                     'bbox': bbox,
                     'width_pixel': width_pixel,
                     'height_pixel': height_pixel,
-                    'area_pixel': area_pixel
+                    'area_pixel': area_pixel,
+                    'pca_box': box,
+                    'pca_rect': rect
                 }
                 
-                # 确保所有对象都有真实世界尺寸信息
+                # Ensure reference real-world information available
                 if ref_info:
-                    # 添加尺寸信息
+                    # add real-world dimensions
                     if 'dimensions' in ref_info:
                         dimensions = ref_info['dimensions']
                         if 'width' in dimensions:
                             obj_info['width_m'] = dimensions['width']
                         if 'length' in dimensions:
                             obj_info['length_m'] = dimensions['length']
-                    else:
-                        # 如果没有dimensions字段，添加默认值
-                        obj_info['width_m'] = 1.0  # 默认值
-                        obj_info['length_m'] = 2.0  # 默认值
-                        print(f"Warning: No dimension information for {base_obj_type}, using defaults")
                     
-                    # 添加面积信息
                     if 'area' in ref_info:
                         obj_info['area_m'] = ref_info['area']
                     elif 'width_m' in obj_info and 'length_m' in obj_info:
-                        # 如果没有area但有宽度和长度，计算面积
                         obj_info['area_m'] = obj_info['width_m'] * obj_info['length_m']
-                    else:
-                        # 如果没有足够信息，添加默认值
-                        obj_info['area_m'] = 2.0  # 默认值
-                        print(f"Warning: No area information for {base_obj_type}, using default")
                     
-                    # 添加可靠性信息
                     if 'reliability' in ref_info:
                         obj_info['reliability'] = ref_info['reliability']
-                    else:
-                        obj_info['reliability'] = 0.5  # 默认可靠性
-                else:
-                    # 如果在预定义列表中找不到该对象类型，使用默认值
-                    print(f"Warning: {base_obj_type} not found in reference object list, using default values")
-                    obj_info['width_m'] = 1.0
-                    obj_info['length_m'] = 2.0
-                    obj_info['area_m'] = 2.0
-                    obj_info['reliability'] = 0.3
                 
-                # 计算纵横比用于质量评估
+                # calculate aspect ratio
                 obj_info['aspect_ratio'] = height_pixel / width_pixel if width_pixel > 0 else 1.0
                 
-                # 添加质量评分
+                # add quality score
                 obj_info['quality'] = ref_selection.estimate_object_quality(obj_info)
                 
                 reference_objects.append(obj_info)
@@ -210,18 +162,7 @@ class ReferenceDetectionAgent:
         target_object: Optional[str] = None,
         target_point: Optional[Tuple[int, int]] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Dynamically select appropriate reference objects based on the query and context.
-        
-        Args:
-            reference_objects: List of detected reference objects
-            query: The original user query
-            target_object: Optional name of the target object of interest
-            target_point: Optional point of interest coordinates as (x, y)
-            
-        Returns:
-            Selected list of reference objects
-        """
+        """Dynamically select appropriate reference objects based on the query and context"""
         # First, get GPT-4's decision on how to select and filter references
         selection_strategy = self._get_selection_strategy(reference_objects, query, target_object)
         print(f"Selected strategy: {selection_strategy['strategy_name']}")
@@ -245,9 +186,9 @@ class ReferenceDetectionAgent:
                     # Extract parameters for the function call, excluding non-parameter fields
                     params = {k: v for k, v in step.items() if k not in ['type', 'reason']}
                     
-                    # 限制prioritize_larger_objects的min_area_pixel参数
+                    # set default values for parameters if not provided
                     if step_type == 'prioritize_larger_objects' and 'min_area_pixel' in params:
-                        max_allowed = 300  # 设置允许的最大阈值
+                        max_allowed = 300
                         if params['min_area_pixel'] > max_allowed:
                             original_value = params['min_area_pixel']
                             params['min_area_pixel'] = max_allowed
@@ -273,7 +214,7 @@ class ReferenceDetectionAgent:
                         min_area = operation.get('min_area', 0)
                         max_area = operation.get('max_area', float('inf'))
                         
-                        # 限制min_area参数
+                        # set a maximum limit for min_area
                         max_allowed_min_area = 1000
                         if min_area > max_allowed_min_area:
                             print(f"Limiting min_area from {min_area} to {max_allowed_min_area}")
@@ -426,15 +367,7 @@ class ReferenceDetectionAgent:
         return filtered_objects
 
     def _create_custom_filter(self, code_string: str):
-        """
-        Create a custom filter function from code string provided by GPT-4.
-        
-        Args:
-            code_string: Python code string defining a filter function
-            
-        Returns:
-            Callable filter function or None if creation failed
-        """
+        """Create a custom filter function from code string provided by GPT-4"""
         try:
             # Define a safe namespace for the function
             namespace = {
@@ -464,17 +397,7 @@ class ReferenceDetectionAgent:
         query: str,
         target_object: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        Use GPT-4o to dynamically decide how to select and filter reference objects.
-        
-        Args:
-            reference_objects: List of detected reference objects
-            query: The original user query
-            target_object: Optional name of the target object of interest
-            
-        Returns:
-            Strategy for selecting and filtering reference objects
-        """
+        """Use GPT-4o to dynamically decide how to select and filter reference objects"""
         # Extract basic information to avoid sending too much data to API
         obj_summaries = []
         for obj in reference_objects:
@@ -685,18 +608,7 @@ class ReferenceDetectionAgent:
             }
         
     def run(self, image_path: str, query: str, target_object: Optional[str] = None, target_point: Optional[Tuple[int, int]] = None) -> Dict[str, Dict[str, Union[float, int]]]:
-        """
-        Run the complete reference detection workflow.
-        
-        Args:
-            image_path: Path to the input image
-            query: The user query
-            target_object: Optional name of the target object of interest
-            target_point: Optional point of interest coordinates as (x, y)
-            
-        Returns:
-            Dictionary of selected reference objects with their measurements
-        """
+        """Run the complete reference detection workflow"""
         # Step 1: Execute fixed workflow to detect reference objects
         print("Starting fixed workflow to detect reference objects...")
         reference_objects = self.execute_fixed_workflow(image_path)
@@ -720,37 +632,22 @@ class ReferenceDetectionAgent:
         for obj in selected_objects:
             obj_name = obj['obj']
             
-            # 创建包含所有必要测量值的字典
+            # create a dictionary to store measurements
             measurements = {
                 'width_pixel': obj.get('width_pixel', 0),
                 'height_pixel': obj.get('height_pixel', 0),
                 'area_pixel': obj.get('area_pixel', 0)
             }
             
-            # 确保添加所有真实世界尺寸
-            measurements['width_m'] = obj.get('width_m', 1.0)  # 使用默认值如果缺失
-            measurements['length_m'] = obj.get('length_m', 2.0)  # 使用默认值如果缺失
-            measurements['area_m'] = obj.get('area_m', 2.0)  # 使用默认值如果缺失
+            # add real-world measurements if available
+            if 'width_m' in obj:
+                measurements['width_m'] = obj['width_m']
+            if 'length_m' in obj:
+                measurements['length_m'] = obj['length_m']
+            if 'area_m' in obj:
+                measurements['area_m'] = obj['area_m']
             
             final_output[obj_name] = measurements
-
-        # 验证所有对象都有必要的字段
-        for obj_name, obj_data in final_output.items():
-            missing_fields = []
-            for field in ['width_m', 'length_m', 'area_m']:
-                if field not in obj_data:
-                    missing_fields.append(field)
-            
-            if missing_fields:
-                print(f"Warning: Object {obj_name} is missing fields: {', '.join(missing_fields)}")
-                # 为缺失字段添加默认值
-                for field in missing_fields:
-                    if field == 'width_m':
-                        obj_data[field] = 1.0
-                    elif field == 'length_m':
-                        obj_data[field] = 2.0
-                    elif field == 'area_m':
-                        obj_data[field] = 2.0
 
         # Convert NumPy types to Python types for JSON serialization
         final_output = self._convert_numpy_types(final_output)

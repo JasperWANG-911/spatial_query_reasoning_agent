@@ -53,34 +53,36 @@ reference_object_list = [
         "type": "boeing_737",
         "dimensions": {"length": 39.5, "width": 35.8},
         "area": 285.46,
-        "reliability": 0.8
+        "reliability": 0.9
     },
     {
         "type": "boeing_787",
         "dimensions": {"length": 56.7, "width": 60.1},
         "area": 690.88,
-        "reliability": 0.8
+        "reliability": 0.9
     },
     {
         "type": "airbus_320",
         "dimensions": {"length": 37.57, "width": 35.8},
         "area": 282.36,
-        "reliability": 0.82
+        "reliability": 0.9
     },
     {
         "type": "airbus_330",
         "dimensions": {"length": 63.69, "width": 60.3},
         "area": 764.51,
-        "reliability": 0.83
-    }
+        "reliability": 0.9
+    },
+    {
+    "type": "airbus_321",
+    "dimensions": {"length": 44.51, "width": 35.8},
+    "area": 334.3,
+    "reliability": 0.9
+}
 ]
 
 def analyse_caption_for_references(caption: str) -> List[str]:
-    """
-    Analyze image caption to identify reference objects that match our predefined list.
-    Enhanced to better detect specific aircraft models.
-    Return a list of matched object types.
-    """
+    """Analyze image caption to identify reference objects that match our predefined list."""
     client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
     reference_types = [obj["type"] for obj in reference_object_list]
@@ -145,9 +147,7 @@ def analyse_caption_for_references(caption: str) -> List[str]:
         return []
 
 class GeoChat:
-    """
-    GeoChat class reimplemented using GPT-4o with functionality including image captioning and returning bbox.
-    """
+    """GeoChat class reimplemented using GPT-4o with functionality including image captioning and returning bbox."""
     
     def __init__(self, api_key=None):
         """Initialize GeoChat with OpenAI API key"""
@@ -162,15 +162,7 @@ class GeoChat:
             return base64.b64encode(image_file.read()).decode('utf-8')
     
     def generate_captionning(self, image_path: str) -> str:
-        """
-        Generate image caption using GPT-4o vision capabilities with enhanced aircraft identification
-        
-        Args:
-            image_path: Path to the input image
-            
-        Returns:
-            Detailed description of the image content with specific aircraft types identified
-        """
+        """Generate image caption using GPT-4o vision capabilities with enhanced aircraft identification"""
         # Encode image for API
         base64_image = self._encode_image(image_path)
         
@@ -279,16 +271,7 @@ class GeoChat:
         return description
     
     def generate_bbox(self, image_path: str, object_list: List[str]) -> List[Dict[str, Any]]:
-        """
-        Generate bounding boxes for objects in the image using LandingAI's API
-        
-        Args:
-            image_path: Path to the input image
-            object_list: List of object types to locate in the image
-            
-        Returns:
-            List of dictionaries with object names and bounding boxes
-        """
+        """Generate bounding boxes for objects in the image using LandingAI's API"""
         if not object_list:
             return []
         
