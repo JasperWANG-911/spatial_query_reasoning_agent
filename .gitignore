@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Model files
+*.pth
+*.pt
+sam_vit_h_4b8939.pth
+
+# Output files
+outputs/
+results/
+*.jpg
+*.png
+*.tiff
+!demo_images/*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# API Keys
+.env
+config.json

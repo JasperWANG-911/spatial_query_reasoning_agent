@@ -92,7 +92,7 @@ MIT License
 Yinghao (Jasper) Wang - me@wangyinghao.com
 
 ## Acknowledgments
-
+- Cheng Wang for guidance and support
 - Segment Anything Model (SAM) by Meta AI
 - GPT-4 Vision API by OpenAI
 - Agentic Object Detection API by LandingAI
